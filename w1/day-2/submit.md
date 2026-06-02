@@ -14,9 +14,9 @@
 ### 2.1 Drain3 Tuning (`drain_sim_th`)
 - `sim_th = 0.3` → **63 templates**
 - `sim_th = 0.5` → **55 templates** (chosen as best balance)
-- `sim_th = 0.7` → (more templates, over-splitting)
+- `sim_th = 0.7` → ⚠️ *Run was interrupted (KeyboardInterrupt on 11M-line file); result not recorded* because Drain3 not suitable in this case with big data like the hdfs.log
 
-**Best threshold: 0.5**
+**Best threshold: 0.5** — lowest template count among completed runs, indicating better generalization without over-splitting.
 
 ### 2.2 Top 10 Templates (HDFS)
 
@@ -48,13 +48,13 @@ The following templates were identified as significantly spiking compared to the
 
 | Template ID | Spike Ratio | Notes |
 |-------------|-------------|-------|
-| 54 | **60,000×** | First appeared at `2008-11-11 07:06:40` — brand new template |
-| 55 | **40,000×** | First appeared at `2008-11-11 07:10:32` — brand new template |
-| 45 | **642.5×** | Extreme spike relative to baseline |
-| 42 | **367.2×** | Extreme spike relative to baseline |
-| 39 | **366.3×** | Extreme spike relative to baseline |
+| 31 | **894.1×** | Extreme spike — `dfs.FSNamesystem: BLOCK* NameSystem.delete` |
+| 17 | **427.8×** | Severe spike — `dfs.FSDataset: Deleting block` |
+| 32 | **138.6×** | High spike relative to baseline |
+| 8  | **8.2×**   | Moderate spike |
+| 9  | **8.2×**   | Moderate spike |
 
-> Templates 54 and 55 are also **new templates** (first seen late in the log history), making them doubly suspicious — they represent behavior patterns never seen before.
+> Templates 31 and 17 are both **block-deletion related** — the extreme spikes suggest a mass block deletion/corruption event, which is consistent with the HDFS anomaly labels.
 
 ### 3.2 First Appearance of Templates
 
@@ -85,18 +85,20 @@ Evaluated against the HDFS label file by mapping anomalous 5-minute windows → 
 ```
               precision    recall  f1-score   support
 
-     Anomaly       0.12      0.14      0.13     16838
-      Normal       0.97      0.97      0.97    558223
+     Anomaly       0.02      0.62      0.04     16838
+      Normal       0.94      0.19      0.32    558223
 
-    accuracy                           0.94    575061
-   macro avg       0.55      0.55      0.55    575061
-weighted avg       0.95      0.94      0.95    575061
+    accuracy                           0.20    575061
+   macro avg       0.48      0.41      0.18    575061
+weighted avg       0.92      0.20      0.31    575061
 ```
 
 **Analysis:**
-- **Overall accuracy is high (94%)** — mainly because normal blocks dominate (558K vs 16K anomalies).
-- **Anomaly precision/recall is low (0.12 / 0.14)** — time-window-based mapping is a weak proxy for per-block anomaly ground truth. Many anomalous blocks span multiple windows, and many windows contain both normal and anomalous activity.
-- **This is expected** for a simple window-level Isolation Forest approach. Proper block-level sequence-based methods (e.g., DeepLog, LogBERT) achieve much higher recall on HDFS.
+- **Anomaly recall is 0.62** — the model successfully captures 62% of truly anomalous blocks, which is decent for an unsupervised approach.
+- **Anomaly precision is very low (0.02)** — almost every block in an anomalous window gets flagged, causing massive false positives. This is because `contamination=0.01` flags only ~5 windows as anomalous but those windows contain huge numbers of blocks (including many normal ones).
+- **Overall accuracy is only 20%** — the model over-predicts Normal as Anomaly, confirming the precision problem.
+- **Root cause:** The Isolation Forest is detecting anomalies on the 55-dimensional template distribution (not total count), and maps those windows to all BlockIds in them — most of which are Normal.
+- **Improvement:** Switching IF to operate on 1D total log count (as noted in the code review) and tuning `contamination` higher (e.g., 0.05) would significantly improve precision.
 
 ---
 
