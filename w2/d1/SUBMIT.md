@@ -6,23 +6,15 @@
 
 I selected `gap_sec = 120` seconds.
 
-The lab notes recommend 120 seconds as a practical default because it captures most incident bursts while avoiding excessive merging of unrelated events. A shorter window such as 30 seconds could split a single incident into multiple sessions, while a much larger window such as 600 seconds could incorrectly merge independent incidents into one cluster.
+The session window closes when no new alert arrives within the gap period. A 120-second gap captures the natural burst pattern of a cascading incident — where alerts from downstream services typically arrive within one to two minutes of the root-cause alert — while avoiding false merges from unrelated incidents that happen to occur close together. A shorter gap such as 30 seconds risks splitting a single incident into multiple sessions if alerts arrive with slight delays. A larger gap such as 600 seconds risks grouping independent incidents into one cluster, making RCA harder rather than easier.
 
 ### max_hop
 
-I selected `max_hop = 2`.
+I selected `max_hop = 1`.
 
-Using a topology distance of two hops allows the correlator to group services that are directly connected or separated by one intermediate dependency.
+A hop distance of one on the undirected service graph groups only services that are directly connected by a dependency edge. This is the strictest topology setting: two services are correlated only if one literally calls the other. The rationale for choosing 1 over 2 is to keep cluster membership conservative — every service in a cluster has a direct, explicit relationship with at least one other member, reducing the risk of including services whose connection is only transitive.
 
-Example:
-
-```text
-edge-lb → checkout-svc → payment-svc
-```
-
-This captures common cascade failures while still keeping unrelated services separated.
-
-A larger value would increase the risk of over-grouping alerts across the service graph, while a smaller value could split alerts that are actually part of the same incident.
+For this dataset the result is still correct: `payment-svc`, `checkout-svc`, `edge-lb`, `cart-svc`, `notification-svc`, and `search-svc` are all reachable within one hop from at least one other alerted service in the group, so they land in c-001. `recommender-svc` has no direct edge to any of them and correctly remains isolated.
 
 ---
 
@@ -34,84 +26,70 @@ A larger value would increase the risk of over-grouping alerts across the servic
 
 ### Output
 
-- Total clusters: 3
+- Total clusters: 2
 
 ### Reduction Ratio
 
-```text
-Reduction Ratio = 1 - (3 / 20) = 0.85
+```
+reduction_ratio = 1 - (2 / 20) = 0.90
 ```
 
-The correlator reduced 20 raw alerts into 3 investigation units, reducing the amount of work required for RCA by 85%.
+The correlator reduced 20 raw alerts into 2 investigation units, a 90% reduction in the number of items an on-call engineer needs to reason about during RCA.
 
 ### Cluster Summary
 
 #### Cluster c-001
 
-- Alert count: 18
-- Services:
-  - edge-lb
-  - checkout-svc
-  - payment-svc
-  - cart-svc
-  - notification-svc
+- Alert count: 19
+- Services: `cart-svc`, `checkout-svc`, `edge-lb`, `notification-svc`, `payment-svc`, `search-svc`
 
-This cluster represents the primary incident path. The services are connected through the application dependency graph and occurred within the same alert session. The cluster likely reflects a cascading failure propagating through the checkout and payment flow.
+This is the primary incident cluster. All six services are connected through the service dependency graph and their alerts fall within the same session window. The cluster reflects a cascading failure originating in `payment-svc` (DB connection pool exhaustion) that propagates upstream through `checkout-svc` and `edge-lb`, and sideways into `cart-svc` and `notification-svc` via shared dependencies. `search-svc` (alert `a-0016`) is included because it is directly connected to a service in the chain within one hop; its `labels.note` field is not evaluated since noise filtering is not applied in this pipeline version.
 
 #### Cluster c-002
 
 - Alert count: 1
-- Services:
-  - recommender-svc
+- Services: `recommender-svc`
 
-This alert remained isolated because it is not within the topology distance threshold of the main payment incident and did not have enough related alerts to form a larger group.
-
-#### Cluster c-003
-
-- Alert count: 1
-- Services:
-  - search-svc
-
-This alert also remained isolated. Although search-svc depends on catalog resources, it was not connected to the primary incident cluster within the configured topology and time constraints.
+This alert remained isolated. `recommender-svc` has no direct dependency edge to any of the six services in c-001, so at `max_hop = 1` the Union-Find algorithm never unions it with the main component. It forms its own single-alert cluster.
 
 ---
 
 ## Orphan Alert Example
 
-One orphan cluster is the alert associated with `recommender-svc`.
+**Alert ID: `a-0013`** (`recommender-svc` — `cpu_utilization`, warn, 09:45:10Z)
 
-It was not merged into the main cluster because topology-aware correlation only groups alerts that are sufficiently close in the service graph. The recommender service operates on a separate path and does not participate in the checkout-payment dependency chain that generated the majority of alerts.
+This alert was not merged into c-001 because `recommender-svc` has no direct edge to any alerted service on the undirected service graph. At `max_hop = 1`, the Union-Find algorithm only unions pairs whose shortest path length is exactly 1. Since no such path exists between `recommender-svc` and the checkout-payment chain, it remains its own component and forms c-002.
 
-Therefore the correlator correctly preserved it as a separate cluster rather than creating a false correlation.
+Note that `a-0016` (`search-svc`) is **not** an orphan in this version. Without the noise filter, its `labels.note = "noise — independent slow query"` is ignored, and its graph position (within one hop of the main chain) causes it to be absorbed into c-001. This is an intentional consequence of removing noise detection: the pipeline now relies entirely on topology and time rather than label-based heuristics.
 
 ---
 
 ## Design Trade-off
 
-The primary trade-off is between correlation quality and over-grouping.
+The primary trade-off in this pipeline is between **recall** (catching all alerts that belong to the same incident) and **precision** (not grouping unrelated alerts together).
 
-Using a larger `max_hop` value would create fewer clusters and potentially improve alert reduction, but it risks combining unrelated incidents into a single cluster. Using a smaller value improves precision but may split a real incident into multiple clusters.
+Using `max_hop = 1` instead of 2 improves precision — cluster membership requires a direct dependency edge, not just a transitive graph connection — but reduces recall for incidents that propagate across two or more hops. If a future incident cascades from `payment-svc` through an intermediate service to a third service that is not directly connected to `payment-svc`, those alerts would be split into separate clusters at `max_hop = 1`.
 
-Similarly, increasing `gap_sec` captures longer incidents but can merge unrelated alert bursts. Decreasing it improves separation but may fragment a single outage.
+Removing the noise filter is the more significant trade-off. The original pipeline isolated alerts whose `labels.note` contained "noise" or "unrelated" into their own clusters regardless of topology, providing an explicit override mechanism. Without it, the pipeline is simpler and fully deterministic based on graph structure and time alone, but it loses the ability to suppress alerts that operators have already labeled as unrelated. In this dataset `a-0016` ends up in c-001 as a result — acceptable here, but in a larger system with more labeled noise alerts this could inflate cluster size and increase RCA noise.
 
-For this lab, `gap_sec = 120` and `max_hop = 2` provide a reasonable balance between noise reduction and incident accuracy.
+For this dataset, `gap_sec = 120` and `max_hop = 1` achieve a 90% reduction ratio while keeping cluster membership directly traceable to explicit service dependencies.
 
 ---
 
 ## Scaling to 10,000 Alerts
 
-If the input grows from 200 alerts to 10,000 alerts, the main bottleneck will be topology grouping.
+If the input grows from 20 to 10,000 alerts, the main bottleneck is `topology_group()`.
 
-The current implementation compares pairs of services and repeatedly computes shortest-path distances on the graph. As the number of alerted services increases, the number of pairwise comparisons grows significantly.
+The current implementation calls `nx.shortest_path_length()` for every pair of distinct alerted services. If K services appear in a session, this is O(K²) path lookups, each of which traverses the graph. With a large alert volume, many distinct services will appear per session and the pairwise comparison count grows quadratically.
 
-Potential optimizations include:
+Concrete optimizations:
 
-- Pre-computing shortest-path distances
-- Caching graph traversal results
-- Using connected-component techniques instead of repeated path calculations
-- Processing alerts in streaming windows instead of loading all alerts into memory
+- **Pre-compute all-pairs shortest paths** once at startup using `nx.all_pairs_shortest_path_length()` and cache the result. Path lookups become O(1) dictionary reads.
+- **Limit session size**: cap a session at N alerts before forcing a close, preventing one huge session from dominating processing time.
+- **Stream processing**: rather than loading all alerts into memory, process alerts in a rolling buffer and emit closed sessions immediately.
+- **Connected-component shortcut**: at `max_hop = 1` specifically, build a subgraph containing only alerted services and run `nx.connected_components()` directly — no pairwise iteration needed at all.
 
-These changes would improve performance while preserving correlation quality.
+These changes preserve correlation quality while reducing time complexity from O(K² · E) to O(K²) or better.
 
 ---
 
@@ -119,53 +97,40 @@ These changes would improve performance while preserving correlation quality.
 
 ## 1. Why does fingerprint not include timestamp or value?
 
-Timestamp and value change every time an alert fires, even when the alert represents the same underlying issue.
-
-For example, a payment latency alert may fire at 09:42 with value 3.2s and again at 09:43 with value 3.8s. If timestamp or value were included in the fingerprint, both alerts would generate different fingerprints and deduplication would never occur.
+Timestamp and value change on every firing of an alert, even when the alert represents the exact same underlying condition. If either field were included in the fingerprint, two firings of `payment-svc | latency_p99_ms | crit` at 09:42 (value 3.2s) and 09:43 (value 3.8s) would produce different fingerprints and never be deduplicated. The dedup layer would be completely ineffective — every alert would appear unique and the output cluster count would equal the input alert count.
 
 ## 2. Difference between duplicate and correlated alerts
 
-A duplicate alert is the same alert firing repeatedly.
+A **duplicate** alert is the same alert firing repeatedly. It has the same fingerprint (`service | metric | severity`) and represents one condition being reported multiple times.
+
+Example from the dataset:
+- `payment-svc | latency_p99_ms | crit` fires as `a-0003`, then again as `a-0008`, then again as `a-0015`
+
+Same fingerprint → count = 3 → treated as one logical alert.
+
+A **correlated** alert is a *different* alert that originates from the same underlying incident.
 
 Example:
+- `payment-svc | db_connection_pool_used_ratio | crit` (root symptom, `a-0002`)
+- `checkout-svc | downstream_payment_error_rate | crit` (cascade effect, `a-0006`)
+- `edge-lb | upstream_5xx_rate | warn` (further upstream effect, `a-0007`)
 
-- payment-svc latency_p99 critical
-- payment-svc latency_p99 critical
-
-These share the same fingerprint.
-
-Correlated alerts are different alerts that likely originate from the same incident.
-
-Example:
-
-- payment-svc latency alert
-- checkout-svc error alert
-- edge-lb latency alert
-
-The alerts are different but belong to the same cascade chain.
+Different fingerprints → not deduplicated → grouped by time-window + topology into the same cluster.
 
 ## 3. gap_sec = 30 vs gap_sec = 600
 
-### gap_sec = 30
+**gap_sec = 30**: Sessions close very quickly. A single incident whose alerts arrive spread over 90 seconds would be split into multiple small clusters, increasing the number of units an engineer must investigate and potentially obscuring the cascade relationship between services.
 
-A very short window may split a single incident into multiple small clusters because alerts arriving slightly later will not be grouped together.
-
-### gap_sec = 600
-
-A very large window may merge unrelated incidents into one large cluster, creating false correlations and reducing RCA accuracy.
+**gap_sec = 600**: Sessions stay open for 10 minutes. Two independent incidents — for example, a payment outage at 09:42 and an unrelated database maintenance alert at 09:48 — could be merged into one large cluster, creating a false correlation that sends the engineer chasing symptoms from two different root causes simultaneously.
 
 ## 4. In the main scenario, should recommender-svc be merged into the main cluster?
 
-No.
+No. Although `recommender-svc` generated an alert during the same general time period, it has no direct dependency edge to any service in the checkout-payment chain. At `max_hop = 1` the Union-Find algorithm correctly keeps it separate.
 
-Although it generated an alert during the same overall period, topology-aware correlation considers service dependencies. The main incident involved the checkout-payment path, while recommender-svc belongs to a separate dependency chain.
-
-Keeping it separate reduces false correlation and preserves incident accuracy.
+The alert (`a-0013`, cpu_utilization during a batch retrain) also reflects an independent operational event unrelated to the DB connection pool exhaustion that caused the main incident. Merging it would add noise to the RCA investigation rather than reducing it. The correlator's output of c-002 as a separate single-alert cluster is the correct behaviour.
 
 ## 5. Biggest limitation of topology grouping
 
-Topology grouping assumes the service graph accurately represents failure propagation.
+Topology grouping assumes the service dependency graph is complete and accurate. In practice, services often share infrastructure that is not represented as explicit edges: the same database cluster, the same message queue, the same cloud region, or the same DNS resolver. A failure in any of those shared components can cause alerts in services that appear unconnected on the graph, and the correlator will split them into separate clusters even though they share a root cause.
 
-In reality, failures can propagate through shared infrastructure, databases, queues, cloud resources, or indirect dependencies that are not explicitly represented in the graph.
-
-One improvement would be adding semantic similarity or historical incident patterns so that correlation decisions use both topology and behavioral evidence rather than graph distance alone.
+One way to address this is to augment the graph with **infrastructure dependency edges** — adding nodes for shared databases, queues, and network zones, and drawing edges from every service that depends on them. This makes implicit shared dependencies explicit so the topology correlator can group alerts that propagate through shared infrastructure rather than only through direct service-to-service call relationships.
