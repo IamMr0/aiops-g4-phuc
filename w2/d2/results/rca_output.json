@@ -1,0 +1,48 @@
+{
+  "clusters_analyzed": 2,
+  "results": [
+    {
+      "cluster_id": "c-001-000",
+      "graph_top3": [
+        [
+          "payment-svc",
+          0.9911
+        ],
+        [
+          "checkout-svc",
+          0.92
+        ],
+        [
+          "cart-svc",
+          0.7511
+        ]
+      ],
+      "root_cause": "payment-svc",
+      "class": "connection_pool_exhaustion",
+      "confidence": 0.991,
+      "actions": [
+        "Investigate and increase the database connection pool size for payment-svc",
+        "Optimize database queries to reduce the load on the connection pool"
+      ],
+      "reasoning": "The high confidence score of 0.991 for payment-svc, combined with critical alerts for db_connection_pool_used_ratio and error_rate, suggest that the root cause of the incident is connection pool exhaustion in the payment-svc. This is further supported by the dependency graph, which shows that checkout-svc depends on payment-svc, and the critical alerts for downstream_payment_error_rate and latency_p99_ms in checkout-svc.",
+      "method": "graph+groq"
+    },
+    {
+      "cluster_id": "c-002-000",
+      "graph_top3": [
+        [
+          "recommender-svc",
+          1.0
+        ]
+      ],
+      "root_cause": "recommender-svc",
+      "class": "other",
+      "confidence": 1.0,
+      "actions": [
+        "Investigate manually"
+      ],
+      "reasoning": "Invalid LLM Output",
+      "method": "graph-only"
+    }
+  ]
+}
