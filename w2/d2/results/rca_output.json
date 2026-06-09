@@ -25,7 +25,7 @@
         "Scale up the database connection pool",
         "Add monitoring alert for connection pool usage"
       ],
-      "reasoning": "The high score of payment-svc in the root-cause candidates and the critical alert for db_connection_pool_used_ratio suggest a connection pool exhaustion issue, similar to INC-2025-11-08. The downstream services such as checkout-svc are also experiencing issues, which is consistent with this diagnosis. The high confidence is due to the strong similarity with the past incident.",
+      "reasoning": "The high score of payment-svc in the root-cause candidates and the critical alert for db_connection_pool_used_ratio suggest a connection pool exhaustion issue, similar to INC-2025-11-08. The error rate and latency issues in payment-svc also support this diagnosis. The dependency of checkout-svc on payment-svc explains the cascade of errors to other services.",
       "similar_incidents": [
         "INC-2025-11-08"
       ],
@@ -47,7 +47,7 @@
         "Check system resources and adjust configuration as needed",
         "Implement additional monitoring for memory usage"
       ],
-      "reasoning": "The high CPU utilization warning and past incidents suggest a potential memory leak in the recommender-svc, similar to INC-2025-08-02. The service's history of memory-related issues and the current alert fingerprint support this hypothesis. Further investigation into recent code changes and system resources is necessary to confirm the root cause.",
+      "reasoning": "The high CPU utilization warning and past incidents suggest a potential memory leak in the recommender-svc, similar to INC-2025-08-02. The service's history of memory-related issues and the current alert fingerprint support this diagnosis. Further investigation into recent code changes and system resources is necessary to confirm the root cause.",
       "similar_incidents": [
         "INC-2025-08-02",
         "INC-2025-10-28",
