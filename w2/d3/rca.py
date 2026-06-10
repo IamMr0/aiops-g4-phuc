@@ -107,8 +107,8 @@ def _build_llm_prompt(
 ) -> str:
     top_candidates = graph_candidates[:3]
     history_summary = [
-        {"id": inc["id"], "root_cause": inc["root_cause"],
-         "class": inc["class"], "summary": inc["summary"]}
+        {"id": inc["id"], "root_cause": inc["root_cause_service"],
+         "class": inc["root_cause_class"], "summary": inc["summary"]}
         for inc in history[:10]
     ]
 
@@ -285,6 +285,6 @@ def _find_similar_by_service(
     """Return IDs of historical incidents with the same root cause service."""
     matches = [
         inc["id"] for inc in history
-        if inc.get("root_cause") == service
+        if inc.get("root_cause_service") == service
     ]
     return matches[:3]
