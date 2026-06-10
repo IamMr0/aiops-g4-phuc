@@ -55,7 +55,7 @@ def _load_graph() -> nx.DiGraph:
 
 
 def _load_history() -> list[dict[str, Any]]:
-    data = json.loads(Path(HISTORY_JSON).read_text())
+    data = json.loads(Path(HISTORY_JSON).read_text(encoding="utf-8"))
     return data.get("incidents", [])
 
 

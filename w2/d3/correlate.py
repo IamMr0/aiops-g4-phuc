@@ -45,7 +45,7 @@ def build_graph_from_json(path: str | Path) -> nx.DiGraph:
         "edges":    [{"from": "checkout-svc", "to": "payment-svc", "type": "http"}, ...]
       }
     """
-    data = json.loads(Path(path).read_text())
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
     G = nx.DiGraph()
 
     for svc in data.get("services", []):
