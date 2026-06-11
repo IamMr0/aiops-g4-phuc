@@ -45,6 +45,14 @@ def select_action(retrieval_result: dict, actions_catalog: list[dict], root_caus
                     {"id": m[1]["id"], "score": round(m[0], 3)}
                     for m in retrieval_result.get("top_matches", [])
                 ]
+            },
+            "top_3_neighbors": [
+                {"id": m[1]["id"], "score": round(m[0], 3)}
+                for m in retrieval_result.get("top_matches", [])[:3]
+            ],
+            "consensus_score": 0.0,
+            "selected_action_meta": {
+                "blast_radius_services": 0
             }
         }
 
@@ -111,7 +119,15 @@ def select_action(retrieval_result: dict, actions_catalog: list[dict], root_caus
             "selected_action": "page_oncall",
             "params": {"team": "platform-team"},
             "confidence": 0.0,
-            "evidence": {"reason": "All candidates failed blast radius gate."}
+            "evidence": {"reason": "All candidates failed blast radius gate."},
+            "top_3_neighbors": [
+                {"id": m[1]["id"], "score": round(m[0], 3)}
+                for m in retrieval_result.get("top_matches", [])[:3]
+            ],
+            "consensus_score": 0.0,
+            "selected_action_meta": {
+                "blast_radius_services": 0
+            }
         }
 
     return {
@@ -121,5 +137,13 @@ def select_action(retrieval_result: dict, actions_catalog: list[dict], root_caus
         "evidence": {
             "ev": best_candidate_info["ev"],
             "supporting_incidents": best_candidate_info["supporting_incidents"]
+        },
+        "top_3_neighbors": [
+            {"id": m[1]["id"], "score": round(m[0], 3)}
+            for m in retrieval_result.get("top_matches", [])[:3]
+        ],
+        "consensus_score": best_candidate_info["score"],
+        "selected_action_meta": {
+            "blast_radius_services": best_candidate_info["blast_radius"]
         }
     }
