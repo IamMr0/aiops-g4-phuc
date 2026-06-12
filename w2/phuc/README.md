@@ -67,8 +67,8 @@ python grade.py --audit audit.jsonl --expected eval/expected.json
 ## Expect output
 ```bash
 python engine.py decide --incident eval/E01.json --history incidents_history.json --actions actions.yaml
-
-
+```
+```json
 {                                                
   "selected_action": "increase_pool_size",
   "params": {
