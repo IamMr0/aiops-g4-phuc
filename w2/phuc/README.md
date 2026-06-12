@@ -15,6 +15,11 @@ data-pack/
 ├── grade.py                           (auto-grader — run after you produce audit.jsonl)
 ├── engine_skeleton.py                 (optional starting skeleton — feel free to ignore)
 ├── optional-helpers.py                (two pure-mechanical schema parsers — see HANDOUT §2.6)
+├── engine.py
+├── features.py
+├── retrieval.py
+├── decision.py
+└── audit.jsonl
 └── README.md                          (this file)
 ```
 
@@ -46,3 +51,57 @@ done
 ## Submission
 
 See handout §7.
+
+
+## How to run
+
+```bash
+cd phuc
+uv venv --python 3.12 && uv pip install pandas numpy scikit-learn pyyaml
+
+Remove-Item -ErrorAction SilentlyContinue audit.jsonl; foreach ($i in "01", "02", "03", "04", "05", "06", "07", "08") { python engine.py decide --incident eval/E$i.json --history incidents_history.json --actions actions.yaml }
+
+python grade.py --audit audit.jsonl --expected eval/expected.json
+```
+
+## Expect output
+```bash
+python engine.py decide --incident eval/E01.json --history incidents_history.json --actions actions.yaml
+
+
+{                                                
+  "selected_action": "increase_pool_size",
+  "params": {
+    "service": "payment-svc",
+    "from_value": "50",
+    "to_value": "100"
+  },
+  "confidence": 0.933,
+  "evidence": {
+    "ev": 52.99,
+    "supporting_incidents": [
+      {
+        "id": "INC-2025-11-08",
+        "similarity": 0.933,
+        "outcome": "success"
+      }
+    ]
+  },
+  "top_3_neighbors": [
+    {
+      "id": "INC-2025-11-08",
+      "score": 0.933
+    },
+    {
+      "id": "INC-2026-02-22",
+      "score": 0.682
+    }
+  ],
+  "consensus_score": 0.933,
+  "selected_action_meta": {
+    "blast_radius_services": 1
+  },
+  "incident_id": "E01"
+}
+
+```
