@@ -5,7 +5,7 @@ This pack contains everything you need to run the lab described in the handout.
 ## Contents
 
 ```
-data-pack/
+phuc/
 ├── eval/
 │   ├── E01.json ... E08.json          (8 evaluation incidents)
 │   └── expected.json                  (ground-truth accepted actions)
