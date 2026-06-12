@@ -1,67 +1,6 @@
 import re
 from collections import Counter, defaultdict
 
-# Root cause class patterns detected from log signatures
-ROOT_CAUSE_PATTERNS = {
-    "memory_leak": [
-        "OutOfMemoryError",
-        "heap space",
-        "GC pause",
-        "full GC",
-        "memory pressure",
-    ],
-    "connection_pool_exhaustion": [
-        "ConnectionPool: timeout acquiring connection",
-        "pool exhausted",
-        "pool utilization",
-    ],
-    "lock_contention": [
-        "deadlock detected",
-        "lock timeout exceeded",
-        "lock_wait_ms",
-    ],
-    "tls_expiry": [
-        "TLS handshake failed",
-        "certificate has expired",
-        "x509: certificate signed by unknown authority",
-    ],
-    "retry_storm": [
-        "Retry exhausted",
-        "fallback failed, retrying",
-    ],
-    "rebalance_storm": [
-        "consumer rebalance triggered",
-        "partition reassignment",
-    ],
-    "slow_query": [
-        "query took longer than threshold",
-        "DB query latency",
-    ],
-    "eviction": [
-        "Pod evicted",
-        "OOM kill",
-        "cgroup OOM",
-    ],
-    "rate_limit": [
-        "rate limit exceeded",
-        "429 returned",
-    ],
-    "model_drift": [
-        "feature distribution drift",
-        "model inference confidence dropped",
-    ],
-    "dns_issue": [
-        "DNS resolution failed",
-        "NXDOMAIN",
-        "dns lookup timeout",
-    ],
-    "network_partition": [
-        "connection refused",
-        "no route to host",
-        "network unreachable",
-    ],
-}
-
 
 def clean_log_msg(msg: str) -> str:
     msg = re.sub(r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b', '<IP>', msg)
@@ -69,22 +8,6 @@ def clean_log_msg(msg: str) -> str:
     msg = re.sub(r'\b\d+\b', '<NUM>', msg)
     return msg
 
-
-def detect_root_cause_classes(log_messages: list[str]) -> dict[str, float]:
-    """Detect root cause class from raw log messages. Returns class -> confidence."""
-    class_scores = {}
-    all_text = " ".join(log_messages).lower()
-
-    for rc_class, patterns in ROOT_CAUSE_PATTERNS.items():
-        score = 0.0
-        for pattern in patterns:
-            count = all_text.count(pattern.lower())
-            if count > 0:
-                score += min(count / 10.0, 1.0)  # Cap contribution per pattern
-        if score > 0:
-            class_scores[rc_class] = min(score, 1.0)
-
-    return class_scores
 
 
 def get_root_cause_service(incident: dict) -> str:
@@ -192,21 +115,12 @@ def extract_features(incident: dict) -> dict:
                 affected_services.add(l["svc"])
                 cleaned_logs.append(clean_log_msg(l["msg"]))
 
-        counter = Counter(cleaned_logs)
-        for msg, count in counter.most_common(20):  # Increase from 10 to 20
-            log_signatures.append(msg)
-
-    # Detect root cause classes from raw logs
-    root_cause_classes = {}
-    if root_cause_raw_logs:
-        root_cause_classes = detect_root_cause_classes(root_cause_raw_logs)
-    if not root_cause_classes:
-        root_cause_classes = detect_root_cause_classes(raw_log_messages)
+        # Keep all unique error logs to ensure rare errors like OOM are preserved for TF-IDF
+        log_signatures = list(set(cleaned_logs))
 
     return {
         "affected_services": list(affected_services),
         "log_signatures": log_signatures,
         "trace_signatures": trace_signatures,
         "root_cause_service": root_cause,
-        "root_cause_classes": root_cause_classes,
     }

@@ -82,10 +82,8 @@ def select_action(retrieval_result: dict, actions_catalog: list[dict], root_caus
         p_fail = 1.0 - confidence
 
         # --- Breadth-adjusted score ---
-        # Actions appearing across more unique incidents are more reliable.
-        # sqrt scaling prevents over-rewarding high counts.
-        breadth_factor = math.sqrt(unique_incidents)
-        adjusted_score = c["score"] * breadth_factor
+        # We no longer multiply by sqrt(unique_incidents) as it creates an O(n^1.5) growth curve
+        adjusted_score = c["score"]
 
         # --- EV calculation ---
         benefit_per_unit = 60  # benefit per unit of adjusted vote score
@@ -95,11 +93,6 @@ def select_action(retrieval_result: dict, actions_catalog: list[dict], root_caus
         # Blast-radius gate: block modifying actions at low confidence
         if confidence < 0.35 and blast >= 1:
             continue
-
-        # Page_oncall penalty: prevent zero-cost bias
-        # (page_oncall has cost=0, blast=0 in catalog → naive EV always wins)
-        if name == "page_oncall":
-            ev -= 25
 
         if ev > best_ev:
             best_ev = ev
