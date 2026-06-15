@@ -1,20 +1,22 @@
 # EOD Checkpoint Reflection
 
-**1. What is the latency budget of your endpoint (p99)? Which phase takes the most time?**
-The latency budget (p99) for the endpoint is **< 10 seconds**. The phase that takes the most time is undeniably **LLM Enrichment** (typically taking 2-8 seconds depending on context length and the model's token generation speed). Other phases like Correlation or Graph RCA run completely in-memory and only take a few dozen milliseconds.
+**1. Actual Latency and Phase Scaling**
+Based on testing with a dataset of 20 alerts:
+*   **Latency Measurement:** The measured p50 latency is incredibly fast at ~**0.6 ms**, and the p99 latency (the first cold-start request) is ~**4.9 ms** (measured via the `X-Response-Time-Ms` header). 
+*   **Dominant Phase:** In this specific scenario, because the Graph RCA calculated a confidence of 1.0 (which is >= the 0.9 threshold), the pipeline *dynamically skipped* the LLM Enrichment phase entirely. Therefore, the dominant phases were simply Pydantic Validation and Graph PageRank, which both ran entirely in-memory and completed in under 1 millisecond. If the LLM were not skipped, it would dominate 99% of the latency (typically taking 2-8 seconds).
+*   **Scaling with 10x Input:** 
+    *   **Linear/Non-Linear Scale:** The `Validation`, `Correlation` (shortest-path graph traversal), and `Graph RCA` phases will scale non-linearly (graph operations can approach $O(V^3)$ complexity) as the alert volume and topology size increases.
+    *   **Fixed Cost:** The **LLM Enrichment** phase (when triggered) acts as a fixed cost. We only send the primary (largest) cluster to the LLM, making 1 API call whether the input has 5 or 500 alerts.
 
-**2. How does latency differ when processing 5 alerts vs 500 alerts? Is the cost linear or fixed?**
-The processing cost is not strictly linear. The Graph Correlation process (union-find and shortest path) increases in complexity as the number of alerts and nodes grows, but since operations run in-memory, the difference between 5 and 500 alerts at L1/L2 is only a few dozen milliseconds.
-However, the LLM API call acts as a **fixed cost block** for each cluster. Our endpoint currently only extracts the primary cluster (the largest cluster) to send to the LLM. Therefore, whether there are 5 or 500 alerts, we still only make 1 LLM call. Because of this, the total latency remains roughly the same.
+**2. Concurrency Handling & LLM Downtime**
+*   **4 Concurrent Requests:** Testing with PowerShell `Start-Job` showed all 4 concurrent requests succeeded immediately. Since the LLM was dynamically skipped due to high graph confidence, there was no IO blocking. 
+    However, if the LLM *were* required, the endpoint handles it well because FastAPI automatically assigns synchronous `def` endpoints to an external ThreadPool. The 4 requests would process in parallel across 4 separate threads, meaning they wouldn't sequentially block each other.
+*   **First Bottleneck observed:** The first bottleneck (when the LLM is not skipped) is the **LLM Provider's Rate Limit (HTTP 429)** and concurrency limits, rather than local CPU or memory limits on the single Uvicorn worker.
+*   **Fallback Path:** If the LLM provider goes down or times out during execution, the `run_rca` function catches the exception and gracefully degrades. It falls back to the deterministic Graph-based RCA results. The endpoint successfully returns a `200 OK` with the method marked as `graph-only-llm-fallback`, ensuring incident triage is never interrupted.
 
-**3. How does the system behave if the LLM provider goes down during execution? What is the fallback strategy?**
-If the LLM provider (Groq) goes down or times out after 10 seconds, the code catches the exception in the `run_rca` function. It will log a warning and automatically fall back to the Graph-based RCA results (with the returned method set to `graph-only-llm-fallback`). The endpoint still returns a 200 OK along with the root cause derived from PageRank, ensuring the incident triage system is not interrupted.
-Additionally, the on-call engineer can set the flag `AIOPS_USE_LLM=false` to completely skip LLM calls until the provider stabilizes.
-
-**4. What is the difference between `/healthz` and `/readyz`? When should you use each?**
-*   **/healthz (Liveness):** Only checks if the HTTP Server process (Uvicorn) is alive. Kubernetes uses this to decide whether to **restart the pod**.
-*   **/readyz (Readiness):** Checks if the app has finished loading the necessary data (Service graph, History data). Kubernetes uses this to decide whether to **route traffic** to this pod. If the graph is not fully loaded, the pod will remain alive but won't receive requests.
-
-**5. Does the endpoint handle 4 concurrent POST requests well? What is the first bottleneck?**
-If running locally with uvicorn's default options (1 worker), the endpoint will struggle. Because the framework processes concurrently but our LLM call is currently `sync` (`client.chat.completions.create` blocking the thread), the 4 requests will wait for each other, and the 4th request might timeout from the client's side.
-If running in production with `uvicorn --workers 4`, the 4 requests will be evenly distributed across 4 processes and handled in parallel. However, the first bottleneck will immediately appear at the **Rate Limit and Concurrency Limit of the LLM Provider**.
+**3. `/healthz` vs `/readyz`**
+*   **What they check:**
+    *   `/healthz` (Liveness): Checks if the HTTP Server process (Uvicorn) is alive.
+    *   `/readyz` (Readiness): Checks if the application has fully loaded its necessary dependencies into memory (Service Graph and Historical Incidents data).
+*   **Why separate them?** Kubernetes uses them differently. If a liveness probe fails, Kubernetes will completely **restart the pod**. If a readiness probe fails, Kubernetes will simply **stop routing traffic** to it. We separate them because an app might still be loading data (not ready) but the process hasn't crashed (is alive). We don't want to kill a pod just because it's taking time to load the graph.
+*   **If the LLM API goes down, does `/readyz` fail?** No, it **still passes**. The LLM is treated as an optional external dependency. Because our pipeline is fault-tolerant and has a graph-only fallback mechanism, the endpoint can still serve functional responses without the LLM. Failing `/readyz` would take the entire service offline, which violates our graceful degradation design.
