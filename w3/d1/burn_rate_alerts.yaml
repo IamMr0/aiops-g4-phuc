@@ -1,0 +1,233 @@
+# Burn-Rate Alert Rules - W3-D1
+# Multi-Window Multi-Burn-Rate (MWMBR) - 3 tiers x 3 services = 9 alert rules
+#
+# Tier thresholds derived from Google SRE Workbook Ch.5:
+#   T = budget_fraction / (window / SLO_period_hours)
+#   SLO period = 30 days = 720 hours
+#
+# Tier 1 (urgent page): T = 0.014 / (1h/720h)  = 10.0  - fires if 1.4% budget burned in 1h (tuned for faster detection)
+# Tier 2 (page):        T = 0.05 / (6h/720h)  = 6.0   - fires if 5% budget burned in 6h
+# Tier 3 (ticket):      T = 0.10 / (72h/720h) = 1.0   - fires if 10% budget burned in 3d
+#
+# MWMBR AND logic: both long-window AND short-window must exceed threshold.
+#   - Long window ensures signal is real (size of incident matters)
+#   - Short window ensures incident is still ongoing (fast recovery)
+#   - Short ~= long/12 (Google rule of thumb)
+
+groups:
+
+  # ===========================================================================
+  # API SERVICE - SLO 99.9%, (1 - SLO) = 0.001
+  # Normal fail_rate ~= 0.00349 -> normal burn rate ~= 3.49 (below all page thresholds)
+  # ===========================================================================
+  - name: api-slo
+    rules:
+
+      # -- Tier 1 - Urgent page: 1.4% budget in 1h (10x burn rate) ----------
+      # Detection: incident with fail_rate >= 10 x 0.001 = 1.0% triggers faster than baseline
+      # Budget: 0.014 x 43min ~= 36 seconds downtime equivalent to trigger
+      - alert: api_burn_rate_tier1
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5..|429"}[1h]))
+            / sum(rate(http_requests_total[1h]))
+          ) / (1 - 0.999) >= 10
+          AND
+          (
+            sum(rate(http_requests_total{status=~"5..|429"}[5m]))
+            / sum(rate(http_requests_total[5m]))
+          ) / (1 - 0.999) >= 10
+        labels:
+          severity: page
+          tier: "1"
+          service: api
+        annotations:
+          summary: "API burn rate >= 10x over 1h+5m (urgent: 1.4% budget/hour)"
+          description: >-
+            API error budget burning at {{ $value | humanize }}x rate.
+            At this pace, the full monthly budget will exhaust in
+            {{ printf "%.1f" (div 720.0 $value) }} hours.
+          runbook: "https://runbooks.example.com/api-slo-burn-tier1"
+
+      # -- Tier 2 - Page: 5% budget in 6h (6x burn rate) -------------------
+      # Catches slower burns that Tier 1 misses (e.g. incident #5: x10 multiplier)
+      - alert: api_burn_rate_tier2
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5..|429"}[6h]))
+            / sum(rate(http_requests_total[6h]))
+          ) / (1 - 0.999) >= 6
+          AND
+          (
+            sum(rate(http_requests_total{status=~"5..|429"}[30m]))
+            / sum(rate(http_requests_total[30m]))
+          ) / (1 - 0.999) >= 6
+        labels:
+          severity: page
+          tier: "2"
+          service: api
+        annotations:
+          summary: "API burn rate >= 6x over 6h+30m (5% budget burned in 6h)"
+          description: >-
+            API error budget burning at {{ $value | humanize }}x baseline rate.
+          runbook: "https://runbooks.example.com/api-slo-burn-tier2"
+
+      # -- Tier 3 - Ticket: 10% budget in 3d (1x burn rate) ----------------
+      # Sustained low-level degradation; creates ticket for next business day
+      - alert: api_burn_rate_tier3
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5..|429"}[3d]))
+            / sum(rate(http_requests_total[3d]))
+          ) / (1 - 0.999) >= 1
+          AND
+          (
+            sum(rate(http_requests_total{status=~"5..|429"}[6h]))
+            / sum(rate(http_requests_total[6h]))
+          ) / (1 - 0.999) >= 1
+        labels:
+          severity: ticket
+          tier: "3"
+          service: api
+        annotations:
+          summary: "API burn rate >= 1x over 3d+6h (SLO trending to miss)"
+          runbook: "https://runbooks.example.com/api-slo-burn-tier3"
+
+  # ===========================================================================
+  # DATABASE SERVICE - SLO 99.95%, (1 - SLO) = 0.0005
+  # Normal fail_rate ~= 0.000151 -> normal burn rate ~= 0.30 (healthy, well below 1)
+  # ===========================================================================
+  - name: db-slo
+    rules:
+
+      # -- Tier 1 - Urgent page: 10x burn rate ----------------------------
+      - alert: db_burn_rate_tier1
+        expr: |
+          (
+            sum(rate(db_queries_fail_total[1h]))
+            / sum(rate(db_queries_total[1h]))
+          ) / (1 - 0.9995) >= 10
+          AND
+          (
+            sum(rate(db_queries_fail_total[5m]))
+            / sum(rate(db_queries_total[5m]))
+          ) / (1 - 0.9995) >= 10
+        labels:
+          severity: page
+          tier: "1"
+          service: db
+        annotations:
+          summary: "DB burn rate >= 10x over 1h+5m (urgent page)"
+          runbook: "https://runbooks.example.com/db-slo-burn-tier1"
+
+      # -- Tier 2 - Page: 6x burn rate --------------------------------------
+      - alert: db_burn_rate_tier2
+        expr: |
+          (
+            sum(rate(db_queries_fail_total[6h]))
+            / sum(rate(db_queries_total[6h]))
+          ) / (1 - 0.9995) >= 6
+          AND
+          (
+            sum(rate(db_queries_fail_total[30m]))
+            / sum(rate(db_queries_total[30m]))
+          ) / (1 - 0.9995) >= 6
+        labels:
+          severity: page
+          tier: "2"
+          service: db
+        annotations:
+          summary: "DB burn rate >= 6x over 6h+30m (page)"
+          runbook: "https://runbooks.example.com/db-slo-burn-tier2"
+
+      # -- Tier 3 - Ticket: 1x burn rate ------------------------------------
+      - alert: db_burn_rate_tier3
+        expr: |
+          (
+            sum(rate(db_queries_fail_total[3d]))
+            / sum(rate(db_queries_total[3d]))
+          ) / (1 - 0.9995) >= 1
+          AND
+          (
+            sum(rate(db_queries_fail_total[6h]))
+            / sum(rate(db_queries_total[6h]))
+          ) / (1 - 0.9995) >= 1
+        labels:
+          severity: ticket
+          tier: "3"
+          service: db
+        annotations:
+          summary: "DB burn rate >= 1x over 3d+6h (SLO trending to miss)"
+          runbook: "https://runbooks.example.com/db-slo-burn-tier3"
+
+  # ===========================================================================
+  # FRONTEND SERVICE - SLO 98.5%, (1 - SLO) = 0.015
+  # Normal fail_rate ~= 0.01390 -> normal burn rate ~= 0.93 (just under 1x - healthy)
+  # Incident #4: x8 multiplier -> fail_rate ~= 0.111 -> burn ~= 7.4 (triggers tier2+)
+  # ===========================================================================
+  - name: frontend-slo
+    rules:
+
+      # -- Tier 1 - Urgent page: 10x burn rate ----------------------------
+      # Fires when frontend fail_rate >= 10 x 0.015 = 15.0% (severe outage)
+      - alert: frontend_burn_rate_tier1
+        expr: |
+          (
+            sum(rate(frontend_rum_errors_total[1h]))
+            / sum(rate(frontend_rum_events_total[1h]))
+          ) / (1 - 0.985) >= 10
+          AND
+          (
+            sum(rate(frontend_rum_errors_total[5m]))
+            / sum(rate(frontend_rum_events_total[5m]))
+          ) / (1 - 0.985) >= 10
+        labels:
+          severity: page
+          tier: "1"
+          service: frontend
+        annotations:
+          summary: "Frontend burn rate >= 10x over 1h+5m (urgent page)"
+          runbook: "https://runbooks.example.com/frontend-slo-burn-tier1"
+
+      # -- Tier 2 - Page: 6x burn rate --------------------------------------
+      # Fires when frontend fail_rate >= 6 x 0.015 = 9%
+      # Catches incident #4 (x8 multiplier -> fail_rate ~11.1%)
+      - alert: frontend_burn_rate_tier2
+        expr: |
+          (
+            sum(rate(frontend_rum_errors_total[6h]))
+            / sum(rate(frontend_rum_events_total[6h]))
+          ) / (1 - 0.985) >= 6
+          AND
+          (
+            sum(rate(frontend_rum_errors_total[30m]))
+            / sum(rate(frontend_rum_events_total[30m]))
+          ) / (1 - 0.985) >= 6
+        labels:
+          severity: page
+          tier: "2"
+          service: frontend
+        annotations:
+          summary: "Frontend burn rate >= 6x over 6h+30m (page)"
+          runbook: "https://runbooks.example.com/frontend-slo-burn-tier2"
+
+      # -- Tier 3 - Ticket: 1x burn rate ------------------------------------
+      # Fires when fail_rate > baseline (normal ~0.93x - very close, ticket-only)
+      - alert: frontend_burn_rate_tier3
+        expr: |
+          (
+            sum(rate(frontend_rum_errors_total[3d]))
+            / sum(rate(frontend_rum_events_total[3d]))
+          ) / (1 - 0.985) >= 1
+          AND
+          (
+            sum(rate(frontend_rum_errors_total[6h]))
+            / sum(rate(frontend_rum_events_total[6h]))
+          ) / (1 - 0.985) >= 1
+        labels:
+          severity: ticket
+          tier: "3"
+          service: frontend
+        annotations:
+          summary: "Frontend burn rate >= 1x over 3d+6h (SLO trending to miss)"
+          runbook: "https://runbooks.example.com/frontend-slo-burn-tier3"
