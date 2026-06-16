@@ -1,0 +1,275 @@
+version: '3.8'
+
+services:
+  # ============================================
+  # Application Services (10 microservices)
+  # ============================================
+  frontend:
+    image: nginx:alpine
+    container_name: w3d2-frontend
+    ports: ["80:80"]
+    volumes:
+      - ./services/frontend/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - api-gateway
+    networks:
+      - aiops-net
+
+  api-gateway:
+    image: nginx:alpine
+    container_name: w3d2-api-gateway
+    ports: ["8080:8080"]
+    volumes:
+      - ./services/api-gateway/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - payment-svc
+      - inventory-svc
+      - notification-svc
+      - checkout-svc
+      - auth-svc
+    networks:
+      - aiops-net
+
+  payment-svc:
+    build: ./services/payment-svc
+    container_name: w3d2-payment-svc
+    ports: ["8081:8080"]
+    environment:
+      - SERVICE_NAME=payment-svc
+      - DB_HOST=payment-db
+      - DB_PORT=5432
+      - DB_NAME=paymentdb
+      - DB_USER=payment
+      - DB_PASSWORD=payment123
+    depends_on:
+      - payment-db
+    networks:
+      - aiops-net
+
+  inventory-svc:
+    build: ./services/inventory-svc
+    container_name: w3d2-inventory-svc
+    ports: ["8082:8080"]
+    environment:
+      - SERVICE_NAME=inventory-svc
+      - DB_HOST=inventory-db
+      - DB_PORT=5432
+      - DB_NAME=inventorydb
+      - DB_USER=inventory
+      - DB_PASSWORD=inventory123
+    depends_on:
+      - inventory-db
+    networks:
+      - aiops-net
+
+  notification-svc:
+    build: ./services/notification-svc
+    container_name: w3d2-notification-svc
+    ports: ["8083:8080"]
+    environment:
+      - SERVICE_NAME=notification-svc
+      - KAFKA_BROKERS=kafka:9092
+    depends_on:
+      - kafka
+    networks:
+      - aiops-net
+
+  checkout-svc:
+    build: ./services/checkout-svc
+    container_name: w3d2-checkout-svc
+    ports: ["8084:8080"]
+    environment:
+      - SERVICE_NAME=checkout-svc
+      - PAYMENT_SVC_URL=http://payment-svc:8080
+      - INVENTORY_SVC_URL=http://inventory-svc:8080
+      - NOTIFICATION_SVC_URL=http://notification-svc:8080
+    depends_on:
+      - payment-svc
+      - inventory-svc
+      - notification-svc
+    networks:
+      - aiops-net
+
+  auth-svc:
+    build: ./services/auth-svc
+    container_name: w3d2-auth-svc
+    ports: ["8085:8080"]
+    environment:
+      - SERVICE_NAME=auth-svc
+    networks:
+      - aiops-net
+
+  log-collector:
+    build: ./services/log-collector
+    container_name: w3d2-log-collector
+    ports: ["8086:8080", "9100:9100"]
+    volumes:
+      - ./services/log-collector/logs:/var/log
+    networks:
+      - aiops-net
+
+  dns-resolver:
+    image: internetsystemsconsortium/bind9:9.18
+    container_name: w3d2-dns-resolver
+    ports: ["53:53/udp", "53:53/tcp"]
+    volumes:
+      - ./services/dns-resolver/named.conf:/etc/bind/named.conf:ro
+    networks:
+      - aiops-net
+
+  cache-svc:
+    image: redis:7-alpine
+    container_name: w3d2-cache-svc
+    ports: ["6379:6379", "9121:9121"]
+    command: redis-server --appendonly yes
+    networks:
+      - aiops-net
+
+  # ============================================
+  # Databases
+  # ============================================
+  payment-db:
+    image: postgres:15-alpine
+    container_name: w3d2-payment-db
+    ports: ["5432:5432", "9187:9187"]
+    environment:
+      - POSTGRES_DB=paymentdb
+      - POSTGRES_USER=payment
+      - POSTGRES_PASSWORD=payment123
+    volumes:
+      - payment-db-data:/var/lib/postgresql/data
+    networks:
+      - aiops-net
+
+  inventory-db:
+    image: postgres:15-alpine
+    container_name: w3d2-inventory-db
+    ports: ["5433:5432", "9188:9187"]
+    environment:
+      - POSTGRES_DB=inventorydb
+      - POSTGRES_USER=inventory
+      - POSTGRES_PASSWORD=inventory123
+    volumes:
+      - inventory-db-data:/var/lib/postgresql/data
+    networks:
+      - aiops-net
+
+  # ============================================
+  # Message Queue
+  # ============================================
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: w3d2-kafka
+    ports: ["9092:9092"]
+    environment:
+      - KAFKA_BROKER_ID=1
+      - KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+    depends_on:
+      - zookeeper
+    networks:
+      - aiops-net
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: w3d2-zookeeper
+    ports: ["2181:2181"]
+    environment:
+      - ZOOKEEPER_CLIENT_PORT=2181
+    networks:
+      - aiops-net
+
+  # ============================================
+  # Monitoring Stack
+  # ============================================
+  prometheus:
+    image: prom/prometheus:v2.50.0
+    container_name: w3d2-prometheus
+    ports: ["9090:9090"]
+    volumes:
+      - ./configs/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./configs/prometheus_targets.yml:/etc/prometheus/targets.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=14d
+      - --web.enable-lifecycle
+    networks:
+      - aiops-net
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: w3d2-alertmanager
+    ports: ["9093:9093"]
+    volumes:
+      - ./configs/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    networks:
+      - aiops-net
+
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: w3d2-grafana
+    ports: ["3000:3000"]
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+    networks:
+      - aiops-net
+
+  # ============================================
+  # AIOps Pipeline
+  # ============================================
+  aiops-pipeline:
+    build: ./pipeline
+    container_name: w3d2-aiops-pipeline
+    ports: ["8000:8000"]
+    environment:
+      - AIOPS_SERVICES_JSON=/app/dataset/services.json
+      - AIOPS_HISTORY_JSON=/app/dataset/incidents_history.json
+      - AIOPS_VERSION=1.0.0
+      - AIOPS_USE_LLM=true
+      - AIOPS_LLM_MODEL=llama-3.3-70b-versatile
+      - AIOPS_CORRELATE_GAP_SEC=120
+      - AIOPS_CORRELATE_MAX_HOP=2
+      - AIOPS_GRAPH_RELOAD_SEC=300
+    volumes:
+      - ./pipeline/dataset:/app/dataset:ro
+    depends_on:
+      - prometheus
+    networks:
+      - aiops-net
+
+  # ============================================
+  # Chaos Tools
+  # ============================================
+  pumba:
+    image: gaiaadm/pumba:0.9.3
+    container_name: w3d2-pumba
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    privileged: true
+    network_mode: host
+    command: --help
+
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.5.0
+    container_name: w3d2-toxiproxy
+    ports: ["8474:8474", "9091:9091"]
+    volumes:
+      - ./chaos_tools/toxiproxy.json:/etc/toxiproxy.json:ro
+    networks:
+      - aiops-net
+
+networks:
+  aiops-net:
+    driver: bridge
+
+volumes:
+  payment-db-data:
+  inventory-db-data:
+  prometheus-data:
+  grafana-data:

@@ -1,0 +1,16 @@
+{
+  "captured_at": "2026-06-16T09:29:19.388258+00:00",
+  "duration_seconds": 300,
+  "metrics": {
+    "rate(http_requests_total[1m])": {
+      "mean": 0.1917420208316359,
+      "p99": 0.19647652105573385,
+      "samples": 30
+    },
+    "histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[1m]))": {
+      "mean": 0.09925347222222222,
+      "p99": 0.0995,
+      "samples": 30
+    }
+  }
+}

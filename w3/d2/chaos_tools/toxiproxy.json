@@ -1,0 +1,14 @@
+[
+  {
+    "name": "payment_toxic",
+    "upstream": "payment-svc:8080",
+    "listen": "0.0.0.0:9091",
+    "toxics": []
+  },
+  {
+    "name": "inventory_toxic",
+    "upstream": "inventory-svc:8080",
+    "listen": "0.0.0.0:9092",
+    "toxics": []
+  }
+]
