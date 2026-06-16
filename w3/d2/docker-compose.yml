@@ -30,6 +30,18 @@ services:
     networks:
       - aiops-net
 
+  api-gateway-exporter:
+    image: nginx/nginx-prometheus-exporter:1.1.0
+    container_name: w3d2-api-gateway-exporter
+    command:
+      - -nginx.scrape-uri=http://api-gateway:8080/stub_status
+    ports:
+      - "9113:9113"
+    depends_on:
+      - api-gateway
+    networks:
+      - aiops-net
+
   payment-svc:
     build: ./services/payment-svc
     container_name: w3d2-payment-svc

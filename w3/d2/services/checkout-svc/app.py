@@ -1,4 +1,4 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 import os
 import time
@@ -14,10 +14,15 @@ REQUEST_LATENCY = Histogram('http_request_duration_seconds', 'Request latency')
 def health():
     return jsonify({'status': 'ok', 'service': 'checkout-svc'})
 
+@app.after_request
+def after_request(response):
+    if request.path != '/metrics':
+        REQUEST_COUNT.labels(status=str(response.status_code)).inc()
+    return response
+
 @app.route('/api/checkout')
 @REQUEST_LATENCY.time()
 def checkout():
-    REQUEST_COUNT.labels(status='200').inc()
     # Simulate processing time
     time.sleep(random.uniform(0.01, 0.1))
     return jsonify({'status': 'success', 'order_id': f'order_{int(time.time())}'})

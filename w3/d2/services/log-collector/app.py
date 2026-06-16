@@ -1,4 +1,4 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST, start_http_server
 import os
 import time
@@ -22,10 +22,15 @@ metrics_thread.start()
 def health():
     return jsonify({'status': 'ok', 'service': 'log-collector'})
 
+@app.after_request
+def after_request(response):
+    if request.path != '/metrics':
+        REQUEST_COUNT.labels(status=str(response.status_code)).inc()
+    return response
+
 @app.route('/api/logs')
 @REQUEST_LATENCY.time()
 def logs():
-    REQUEST_COUNT.labels(status='200').inc()
     # Simulate processing time
     time.sleep(random.uniform(0.01, 0.1))
     return jsonify({'status': 'success', 'logs_collected': random.randint(0, 100)})
