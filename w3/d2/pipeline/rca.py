@@ -72,13 +72,12 @@ def _graph_rca(
     if subgraph.number_of_nodes() == 0:
         return [(list(alerting_services)[0], 0.5)]
 
-    # Reverse for upstream propagation analysis
-    rev = subgraph.reverse()
-
+    # Intuition: in a call graph, a downstream failure propagates upstream.
+    # By running PageRank on the ORIGINAL graph, the downstream service (callee) accumulates the highest score.
     try:
-        scores = nx.pagerank(rev, alpha=0.85, max_iter=100)
+        scores = nx.pagerank(subgraph, alpha=0.85, max_iter=100)
     except nx.PowerIterationFailedConvergence:
-        scores = {n: 1.0 / len(rev.nodes) for n in rev.nodes}
+        scores = {n: 1.0 / len(subgraph.nodes) for n in subgraph.nodes}
 
     # Only score alerting services; normalise to [0, 1]
     alerting_scores = {

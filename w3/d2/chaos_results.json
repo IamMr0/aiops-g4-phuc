@@ -1,0 +1,182 @@
+[
+  {
+    "id": 1,
+    "name": "payment_latency",
+    "detected": false,
+    "mttd": null,
+    "rca_service": "unknown",
+    "rca_correct": false,
+    "observed_at_ts": 1781611846,
+    "raw": {
+      "alerts": [],
+      "rca": {
+        "root_service": "unknown",
+        "confidence": 0.0
+      },
+      "mttd_seconds": null,
+      "detected": false
+    }
+  },
+  {
+    "id": 2,
+    "name": "payment_network_loss",
+    "detected": false,
+    "mttd": null,
+    "rca_service": "unknown",
+    "rca_correct": false,
+    "observed_at_ts": 1781612032,
+    "raw": {
+      "alerts": [],
+      "rca": {
+        "root_service": "unknown",
+        "confidence": 0.0
+      },
+      "mttd_seconds": null,
+      "detected": false
+    }
+  },
+  {
+    "id": 3,
+    "name": "inventory_availability",
+    "detected": false,
+    "mttd": null,
+    "rca_service": "unknown",
+    "rca_correct": false,
+    "observed_at_ts": 1781612217,
+    "raw": {
+      "alerts": [],
+      "rca": {
+        "root_service": "unknown",
+        "confidence": 0.0
+      },
+      "mttd_seconds": null,
+      "detected": false
+    }
+  },
+  {
+    "id": 4,
+    "name": "api_gateway_cpu_saturation",
+    "detected": false,
+    "mttd": null,
+    "rca_service": "unknown",
+    "rca_correct": false,
+    "observed_at_ts": 1781612348,
+    "raw": {
+      "alerts": [],
+      "rca": {
+        "root_service": "unknown",
+        "confidence": 0.0
+      },
+      "mttd_seconds": null,
+      "detected": false
+    }
+  },
+  {
+    "id": 5,
+    "name": "payment_db_memory_fill",
+    "detected": false,
+    "mttd": null,
+    "rca_service": "unknown",
+    "rca_correct": false,
+    "observed_at_ts": 1781612468,
+    "raw": {
+      "alerts": [],
+      "rca": {
+        "root_service": "unknown",
+        "confidence": 0.0
+      },
+      "mttd_seconds": null,
+      "detected": false
+    }
+  },
+  {
+    "id": 6,
+    "name": "auth_time_skew",
+    "detected": false,
+    "mttd": null,
+    "rca_service": "unknown",
+    "rca_correct": false,
+    "observed_at_ts": 1781612589,
+    "raw": {
+      "alerts": [],
+      "rca": {
+        "root_service": "unknown",
+        "confidence": 0.0
+      },
+      "mttd_seconds": null,
+      "detected": false
+    }
+  },
+  {
+    "id": 7,
+    "name": "log_collector_disk_fill",
+    "detected": false,
+    "mttd": null,
+    "rca_service": "unknown",
+    "rca_correct": false,
+    "observed_at_ts": 1781612709,
+    "raw": {
+      "alerts": [],
+      "rca": {
+        "root_service": "unknown",
+        "confidence": 0.0
+      },
+      "mttd_seconds": null,
+      "detected": false
+    }
+  },
+  {
+    "id": 8,
+    "name": "frontend_network_partition",
+    "detected": false,
+    "mttd": null,
+    "rca_service": "unknown",
+    "rca_correct": false,
+    "observed_at_ts": 1781612829,
+    "raw": {
+      "alerts": [],
+      "rca": {
+        "root_service": "unknown",
+        "confidence": 0.0
+      },
+      "mttd_seconds": null,
+      "detected": false
+    }
+  },
+  {
+    "id": 9,
+    "name": "dns_resolver_latency",
+    "detected": false,
+    "mttd": null,
+    "rca_service": "unknown",
+    "rca_correct": false,
+    "observed_at_ts": 1781612983,
+    "raw": {
+      "alerts": [],
+      "rca": {
+        "root_service": "unknown",
+        "confidence": 0.0
+      },
+      "mttd_seconds": null,
+      "detected": false
+    }
+  },
+  {
+    "id": 10,
+    "name": "checkout_retry_storm",
+    "detected": false,
+    "mttd": null,
+    "rca_service": "unknown",
+    "rca_correct": true,
+    "observed_at_ts": 1781613170,
+    "raw": {
+      "alerts": [],
+      "rca": {
+        "root_service": "unknown",
+        "confidence": 0.0
+      },
+      "mttd_seconds": null,
+      "detected": false
+    }
+  }
+]

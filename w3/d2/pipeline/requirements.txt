@@ -9,3 +9,4 @@ prometheus-client>=0.19
 cachetools>=5.3
 pytest>=7.4
 httpx>=0.26
+scipy>=1.10
