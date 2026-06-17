@@ -1,0 +1,8 @@
+{
+  "alerts": [
+    {"id": "alert-001", "ts": "2026-06-15T02:02:05Z", "service": "api-gateway", "metric": "latency_p99_ms", "severity": "critical", "value": 2400.0, "threshold": 800.0, "labels": {"rule": "latency_p99_high"}},
+    {"id": "alert-002", "ts": "2026-06-15T02:02:08Z", "service": "edge-waf", "metric": "cpu_usage_percent", "severity": "critical", "value": 92.0, "threshold": 85.0, "labels": {"rule": "cpu_saturation"}},
+    {"id": "alert-003", "ts": "2026-06-15T02:02:17Z", "service": "checkout-svc", "metric": "downstream_timeout_rate", "severity": "warning", "value": 0.18, "threshold": 0.05, "labels": {"rule": "downstream_timeout_rate"}},
+    {"id": "alert-004", "ts": "2026-06-15T02:02:30Z", "service": "payment-svc", "metric": "request_queue_depth", "severity": "warning", "value": 920.0, "threshold": 500.0, "labels": {"rule": "request_queue_depth"}}
+  ]
+}

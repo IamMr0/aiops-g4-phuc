@@ -1,0 +1,12 @@
+[
+  {"ts": "2026-06-15T02:00:00Z", "source": "deploy", "event": "WAF regex rule revision promoted to edge middleware canary"},
+  {"ts": "2026-06-15T02:01:12Z", "source": "metrics", "event": "edge_cpu_utilization rises from 35% to 92%"},
+  {"ts": "2026-06-15T02:01:35Z", "source": "metrics", "event": "api_gateway_p99_latency rises from 180ms to 2400ms"},
+  {"ts": "2026-06-15T02:02:05Z", "source": "alerts", "event": "tier1 api latency and edge 5xx alerts fire"},
+  {"ts": "2026-06-15T02:02:20Z", "source": "aiops", "event": "correlator groups edge, api-gateway, checkout, and payment symptoms"},
+  {"ts": "2026-06-15T02:02:45Z", "source": "aiops", "event": "RCA selects api-gateway with confidence 0.58; edge middleware listed as secondary evidence"},
+  {"ts": "2026-06-15T02:04:10Z", "source": "operator", "event": "WAF rule rollback command issued"},
+  {"ts": "2026-06-15T02:05:00Z", "source": "metrics", "event": "edge CPU drops below 50%; latency begins recovery"},
+  {"ts": "2026-06-15T02:07:30Z", "source": "metrics", "event": "api_gateway_p99_latency returns below 250ms"},
+  {"ts": "2026-06-15T02:10:00Z", "source": "incident", "event": "incident moved to monitoring; no further customer-facing errors observed"}
+]
