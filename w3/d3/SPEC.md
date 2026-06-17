@@ -1,4 +1,4 @@
-# AIOps Mini-Platform Spec — <your name>
+# AIOps Mini-Platform Spec — Ngo Nguyen Phuc
 
 ## 1. Platform overview
 
