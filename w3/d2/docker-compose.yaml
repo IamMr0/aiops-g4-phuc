@@ -1,0 +1,103 @@
+services:
+  frontend:
+    build: .
+    environment:
+      SERVICE_NAME: frontend
+    ports:
+      - "8100:8080"
+
+  api-gateway:
+    build: .
+    environment:
+      SERVICE_NAME: api-gateway
+    ports:
+      - "8080:8080"
+    depends_on:
+      - checkout-svc
+      - auth-svc
+      - dns-resolver
+
+  checkout-svc:
+    build: .
+    environment:
+      SERVICE_NAME: checkout-svc
+    ports:
+      - "8103:8080"
+    depends_on:
+      - payment-svc
+      - inventory-svc
+
+  payment-svc:
+    build: .
+    environment:
+      SERVICE_NAME: payment-svc
+    ports:
+      - "8101:8080"
+    depends_on:
+      - payment-db
+
+  inventory-svc:
+    build: .
+    environment:
+      SERVICE_NAME: inventory-svc
+    ports:
+      - "8102:8080"
+    depends_on:
+      - inventory-db
+
+  notification-svc:
+    build: .
+    environment:
+      SERVICE_NAME: notification-svc
+    ports:
+      - "8110:8080"
+
+  auth-svc:
+    build: .
+    environment:
+      SERVICE_NAME: auth-svc
+    ports:
+      - "8104:8080"
+
+  log-collector:
+    build: .
+    environment:
+      SERVICE_NAME: log-collector
+    ports:
+      - "8105:8080"
+
+  dns-resolver:
+    build: .
+    environment:
+      SERVICE_NAME: dns-resolver
+    ports:
+      - "8106:8080"
+
+  cache-svc:
+    build: .
+    environment:
+      SERVICE_NAME: cache-svc
+    ports:
+      - "8107:8080"
+
+  payment-db:
+    build: .
+    environment:
+      SERVICE_NAME: payment-db
+    ports:
+      - "8108:8080"
+
+  inventory-db:
+    build: .
+    environment:
+      SERVICE_NAME: inventory-db
+    ports:
+      - "8109:8080"
+
+  aiops-pipeline:
+    build: .
+    command: ["uvicorn", "apps.pipeline_app:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      SERVICE_NAME: aiops-pipeline
+    ports:
+      - "8000:8000"

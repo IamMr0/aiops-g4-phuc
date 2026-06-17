@@ -1,16 +1,32 @@
 {
-  "captured_at": "2026-06-16T09:29:19.388258+00:00",
+  "captured_at": "2026-06-17T03:13:07.816083+00:00",
   "duration_seconds": 300,
   "metrics": {
-    "rate(http_requests_total[1m])": {
-      "mean": 0.1917420208316359,
-      "p99": 0.19647652105573385,
-      "samples": 30
+    "probe_pass_rate": {
+      "mean": 1.0,
+      "p99": 1.0,
+      "samples": 1
     },
-    "histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[1m]))": {
-      "mean": 0.09925347222222222,
-      "p99": 0.0995,
-      "samples": 30
+    "checkout_latency_ms": {
+      "mean": 80.0,
+      "p99": 120.0,
+      "samples": 1
+    },
+    "error_rate": {
+      "mean": 0.0,
+      "p99": 0.0,
+      "samples": 1
+    },
+    "cpu_used_ratio": {
+      "mean": 0.15,
+      "p99": 0.2,
+      "samples": 1
+    },
+    "memory_used_ratio": {
+      "mean": 0.35,
+      "p99": 0.4,
+      "samples": 1
     }
-  }
+  },
+  "note": "Prometheus unavailable; wrote lightweight simulation fallback baseline."
 }

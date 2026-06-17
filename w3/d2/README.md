@@ -37,10 +37,6 @@ bash synthetic_probe.sh http://example.org probe.log &
 sleep 30 && kill %1
 head probe.log     # should show "pass" lines
 ```
-current command
-```bash
-bash synthetic_probe.sh http://localhost:8080/api/checkout probe.log
-```
 
 ## How to integrate with your own stack
 
