@@ -1,25 +1,25 @@
-# SUBMIT.md — Kết quả chạy 3 chaos scenarios
+# SUBMIT.md — 3 Chaos Scenarios Results
 
-## Thông tin
+## Information
 
-- Họ tên: [Điền tên của bạn]
-- Decision engine: Rule-based (`runbook_map` trong `config.yaml`)
+- Name: Ngo Nguyen Phuc
+- Decision engine: Rule-based (`runbook_map` in `config.yaml`)
 - Python: 3.12, uv
 - Docker Compose: v2
 - OS: Windows (Docker Desktop with WSL2 backend)
 
 ---
 
-## Scenario 1 — Action thành công (kill payment-svc)
+## Scenario 1 — Successful Action (kill payment-svc)
 
-**Lưu ý về môi trường**: Trên Docker Desktop for Windows, lệnh `inject_fault.sh latency` sử dụng `nsenter` + `tc` không hoạt động do container PID namespace nằm trong WSL2 VM, không truy cập được từ host. Do đó, sử dụng `kill` thay vì `latency` để trigger alert `InstanceDown` trên payment-svc.
+**Environment Note**: On Docker Desktop for Windows, the `inject_fault.sh latency` command using `nsenter` + `tc` does not work because the container PID namespace resides inside the WSL2 VM and is inaccessible from the host. Therefore, `kill` is used instead of `latency` to trigger the `InstanceDown` alert on payment-svc.
 
-**Lệnh inject:**
+**Inject command:**
 ```bash
 bash data-pack/scripts/inject_fault.sh kill ronki-payment-svc
 ```
 
-**Log orchestrator (trích):**
+**Orchestrator log (excerpt):**
 ```json
 {"ts":"2026-06-18T05:03:41.473748+00:00","level":"INFO","event_type":"ORCHESTRATOR_START","config":"config.yaml","dry_run":false,"poll_interval_s":15}
 {"ts":"2026-06-18T05:03:41.569627+00:00","level":"INFO","event_type":"ALERT_SKIPPED","alertname":"InstanceDown","service":"closed-loop-orchestrator","reason":"Service not in known_services list"}
@@ -46,24 +46,24 @@ bash data-pack/scripts/inject_fault.sh kill ronki-payment-svc
 {"ts":"2026-06-18T05:15:10.242786+00:00","level":"INFO","event_type":"ROLLBACK_EXECUTED","service":"payment-svc","rollback_runbook":"runbooks/restart_service.sh"}
 ```
 
-**Kết quả:** Orchestrator phát hiện đúng `InstanceDown` trên `payment-svc`, qua được Dry-run và Blast-radius. Restart thành công (container running). Tuy nhiên, **verify FAIL** vì `latency_p99_ms` trả về `null` trong suốt 60s verify window.
+**Result:** The orchestrator correctly detected `InstanceDown` on `payment-svc`, successfully passed Dry-run and Blast-radius checks. Restart was successful (container running). However, **verify FAILED** because `latency_p99_ms` returned `null` throughout the entire 60s verify window.
 
-**Nguyên nhân**: PromQL query `histogram_quantile(0.99, rate(http_request_duration_seconds_bucket{service="payment-svc"}[1m]))` yêu cầu ít nhất 2 scrape cycle để `rate()` tính được giá trị. Sau container restart, histogram counter bị reset — Prometheus cần ~20–30s để tích lũy đủ data. Trong verify window 60s, 6 sample liên tiếp đều trả `null` → verify fail → rollback triggered.
+**Root cause**: The PromQL query `histogram_quantile(0.99, rate(http_request_duration_seconds_bucket{service="payment-svc"}[1m]))` requires at least 2 scrape cycles for `rate()` to compute a value. After a container restart, the histogram counter is reset — Prometheus needs ~20–30s to accumulate enough data. During the 60s verify window, all 6 consecutive samples returned `null` → verify failed → rollback triggered.
 
-**Phân tích**: Toàn bộ closed-loop flow hoạt động đúng (Detect → Decide → Dry-run → Act → Verify → Rollback). Kết quả chứng minh cả Scenario 1 (detect + decide + act) lẫn Scenario 2 (verify fail → auto-rollback) hoạt động trong cùng một lần chạy. Để verify pass, cần tăng `verify_timeout_seconds` lên 90–120s hoặc chờ Prometheus scrape đủ data trước khi chạy verify.
+**Analysis**: The entire closed-loop flow works correctly (Detect → Decide → Dry-run → Act → Verify → Rollback). The output demonstrates both Scenario 1 (detect + decide + act) and Scenario 2 (verify fail → auto-rollback) behaviors in a single run. To achieve a verify pass, `verify_timeout_seconds` would need to be increased to 90–120s, or the orchestrator should wait for Prometheus to accumulate enough scrape data before executing the verify step.
 
 ---
 
 ## Scenario 2 — Action fail → rollback (checkout-svc killed)
 
-**Thiết lập:** Dùng kết quả từ Scenario 1 — verify đã fail do `latency_p99_ms: null`, rollback tự động triggered mà không cần đặt threshold thấp.
+**Setup:** We observed this behavior naturally in Scenario 1 — verify failed due to `latency_p99_ms: null` and an auto-rollback was triggered, eliminating the need to manually set a low threshold.
 
-**Lệnh inject:**
+**Inject command:**
 ```bash
 bash data-pack/scripts/inject_fault.sh kill ronki-checkout-svc
 ```
 
-**Log orchestrator (trích):**
+**Orchestrator log (excerpt):**
 ```json
 {"ts":"2026-06-18T05:21:49.598905+00:00","level":"INFO","event_type":"ALERT_DETECTED","alertname":"InstanceDown","service":"checkout-svc","severity":"critical"}
 {"ts":"2026-06-18T05:21:49.598905+00:00","level":"INFO","event_type":"DECIDE_RUNBOOK","alertname":"InstanceDown","service":"checkout-svc","runbook":"runbooks/restart_service.sh"}
@@ -88,15 +88,15 @@ bash data-pack/scripts/inject_fault.sh kill ronki-checkout-svc
 {"ts":"2026-06-18T05:23:02.491081+00:00","level":"INFO","event_type":"ROLLBACK_EXECUTED","service":"checkout-svc","rollback_runbook":"runbooks/restart_service.sh"}
 ```
 
-**Kết quả:** PASS (rollback logic). Orchestrator phát hiện `InstanceDown` trên `checkout-svc`, restart thành công nhưng verify fail do `latency_p99_ms: null` (cùng nguyên nhân với Scenario 1 — Prometheus `rate()` cần thời gian tích lũy data sau container restart). Auto-rollback triggered mà không cần can thiệp tay. `failure_count` tăng lên 1. Flow đầy đủ: ALERT_DETECTED → DECIDE_RUNBOOK → BLAST_RADIUS_OK → DRY_RUN_PASS → ACTION_EXECUTED → VERIFY_FAIL → ROLLBACK_TRIGGERED → ROLLBACK_EXECUTED.
+**Result:** PASS (rollback logic verified). The orchestrator detected `InstanceDown` on `checkout-svc` and successfully executed the restart action. However, the verify step failed due to `latency_p99_ms: null` (same root cause as Scenario 1 — Prometheus `rate()` needed more time to accumulate data after the container restart). Auto-rollback was successfully triggered without manual intervention. The `failure_count` incremented to 1. The full execution flow was confirmed: ALERT_DETECTED → DECIDE_RUNBOOK → BLAST_RADIUS_OK → DRY_RUN_PASS → ACTION_EXECUTED → VERIFY_FAIL → ROLLBACK_TRIGGERED → ROLLBACK_EXECUTED.
 
 ---
 
 ## Scenario 3 — Circuit breaker (3 consecutive failures)
 
-**Thiết lập:** Inject kill 3 lần liên tiếp, mỗi lần chờ orchestrator xử lý xong rồi recover trước khi inject tiếp.
+**Setup:** Injected the kill fault 3 consecutive times. After each execution cycle completed, the container was recovered before injecting the fault again.
 
-**Log orchestrator (trích — chỉ key events):**
+**Orchestrator log (excerpt — key events only):**
 ```json
 {"ts": "2026-06-18T06:07:28.505446+00:00", "level": "WARNING", "event_type": "VERIFY_FAIL", "service": "checkout-svc", "samples": 6}
 {"ts": "2026-06-18T06:07:28.505446+00:00", "level": "WARNING", "event_type": "ROLLBACK_TRIGGERED", "service": "checkout-svc", "rollback_runbook": "runbooks/restart_service.sh"}
@@ -105,13 +105,13 @@ bash data-pack/scripts/inject_fault.sh kill ronki-checkout-svc
 {"ts": "2026-06-18T06:07:50.440615+00:00", "level": "ERROR", "event_type": "CIRCUIT_BREAKER_HALT", "message": "Circuit open — polling suspended."}
 ```
 
-**Kết quả:** PASS. Sau 3 lần verify thất bại liên tiếp (consecutive_failures: 3), circuit breaker chuyển sang trạng thái OPEN (halted). Orchestrator log lỗi `CIRCUIT_BREAKER_HALT` và đình chỉ mọi thao tác tự động tiếp theo để bảo vệ hệ thống khỏi vòng lặp restart vô hạn. Kỹ sư cần can thiệp thủ công và khởi động lại orchestrator để reset circuit breaker.
+**Result:** PASS. After 3 consecutive verify failures (consecutive_failures: 3), the circuit breaker transitioned to the OPEN (halted) state. The orchestrator logged a `CIRCUIT_BREAKER_HALT` error and suspended all further automated actions to protect the system from infinite restart loops. Manual engineering intervention and an orchestrator restart are now required to reset the circuit breaker.
 
 ---
 
-## Điều học được
+## Lessons Learned
 
-1. **Closed-Loop Safety Pattern:** Tự động hóa không chỉ là viết script chạy lệnh. Việc áp dụng Blast-radius, Dry-run, và Verify biến một đoạn script nguy hiểm thành một tác vụ có kiểm soát.
-2. **Observability-driven Automation:** Verify step phụ thuộc hoàn toàn vào chất lượng metric. Trong bài lab này, việc dùng Prometheus `rate()` trên histogram yêu cầu thời gian tích lũy (20-30s sau khi container restart), dẫn đến verify fail nếu timeout quá ngắn. Thiết kế automation phải hiểu rõ cơ chế thu thập dữ liệu của công cụ giám sát.
-3. **Phòng ngừa Thundering Herd:** Circuit breaker ngăn chặn thảm họa khi hệ thống bị hỏng hoàn toàn, tránh việc orchestrator cố gắng cứu vãn vô ích và tiêu thụ cạn kiệt tài nguyên.
-4. **State Management:** Tracking fingerprint của alert cần tính đến trường hợp alert resolved rồi firing lại. Nếu chỉ giữ fingerprint trong set vô thời hạn, orchestrator sẽ "bỏ sót" các sự cố lặp lại. Việc remove fingerprint khỏi `seen` set khi alert hết active là rất quan trọng.
+1. **Closed-Loop Safety Pattern:** Automation isn't just about writing scripts to run commands. Applying Blast-radius constraints, Dry-runs, and Post-action Verification transforms a potentially dangerous script into a tightly controlled operation.
+2. **Observability-driven Automation:** The verify step is completely dependent on metric quality. In this lab, using Prometheus `rate()` on a histogram required an accumulation period (20-30s after a container restart), causing verify to fail if the timeout was too short. Automation design must intimately understand the data collection mechanisms of its monitoring tools.
+3. **Thundering Herd Prevention:** The circuit breaker prevents catastrophic failure when a system is completely unrecoverable, stopping the orchestrator from making futile rescue attempts that exhaust system resources.
+4. **State Management:** Tracking alert fingerprints must account for scenarios where alerts resolve and then fire again. If fingerprints are kept in a static set indefinitely, the orchestrator will "ignore" recurring incidents. Removing fingerprints from the `seen` set when an alert is no longer active is a critical implementation detail.

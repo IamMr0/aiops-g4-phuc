@@ -1,22 +1,22 @@
 # DESIGN.md — Ronki Closed-Loop Orchestrator
 
-## 1. Decision engine: Rule-based hay LLM-based?
+## 1. Decision engine: Rule-based or LLM-based?
 
-**Chọn: Rule-based.**
+**Choice: Rule-based.**
 
-Lý do: Stack Ronki có 3 loại alert được định nghĩa rõ ràng (`HighLatency`, `HighErrorRate`, `InstanceDown`) và mỗi loại map 1-1 với một runbook đã được ops team kiểm chứng. Trong môi trường này, rule-based cho **latency quyết định < 1ms** và **deterministic — cùng alert luôn trigger cùng runbook**. LLM-based phù hợp hơn khi alert description phức tạp, ambiguous, hoặc khi cần reasoning qua nhiều bước như phân tích log + metric cùng lúc.
+Reason: The Ronki stack has 3 clearly defined alert types (`HighLatency`, `HighErrorRate`, `InstanceDown`) and each maps 1-1 to a runbook that has been verified by the ops team. In this environment, a rule-based approach provides **decision latency < 1ms** and is **deterministic — the same alert always triggers the same runbook**. LLM-based is more suitable when alert descriptions are complex, ambiguous, or when reasoning across multiple steps (like analyzing logs + metrics simultaneously) is required.
 
-Trade-off:
+Trade-offs:
 
 | | Rule-based | LLM-based |
 |---|---|---|
-| Latency quyết định | < 1ms | 200–800ms (API round-trip) |
-| Determinism | 100% | Phụ thuộc temperature, prompt |
-| Mở rộng alert mới | Cần cập nhật map thủ công | Tự suy luận nếu prompt đủ tốt |
-| Chi phí | Không | ~$0.002–0.01/quyết định |
-| Fallback khi offline | Không cần | Cần rule-based fallback |
+| Decision Latency | < 1ms | 200–800ms (API round-trip) |
+| Determinism | 100% | Depends on temperature, prompt |
+| Adding new alerts | Requires manual map update | Can infer if prompt is good enough |
+| Cost | Free | ~$0.002–0.01/decision |
+| Fallback when offline | Not needed | Needs rule-based fallback |
 
-Kết luận: với 3 alert type cố định và yêu cầu reliability cao trong production lab, rule-based là lựa chọn đúng. Nếu mở rộng lên 20+ alert type với mô tả tự nhiên, sẽ xem xét LLM-based với confidence threshold 0.6.
+Conclusion: with 3 fixed alert types and high reliability requirements in the production lab, rule-based is the correct choice. If expanding to 20+ alert types with natural language descriptions, we would consider LLM-based with a 0.6 confidence threshold.
 
 ## 2. Blast-radius config
 
@@ -26,56 +26,56 @@ blast_radius:
   max_restarts_per_service_per_hour: 5
 ```
 
-**Lý do chọn giá trị:**
+**Reasoning for chosen values:**
 
-- `max_actions_per_minute: 3` — stack có 5 service. Nếu cascade failure xảy ra, tối đa 3 action/phút tránh orchestrator restart đồng loạt tất cả service và làm tăng tải database. Con số này đủ phản ứng nhanh (3 service trong 1 phút) mà không gây thundering herd.
-- `max_restarts_per_service_per_hour: 5` — nếu một service bị restart > 5 lần trong 1 giờ mà vẫn fail, đây là dấu hiệu của lỗi không tự phục hồi được (OOM liên tục, config sai, dependency down). Tiếp tục restart vô ích — cần human escalation.
+- `max_actions_per_minute: 3` — The stack has 5 services. If a cascade failure occurs, a maximum of 3 actions/minute prevents the orchestrator from restarting all services simultaneously and increasing database load. This number is responsive enough (3 services in 1 minute) without causing a thundering herd.
+- `max_restarts_per_service_per_hour: 5` — If a service is restarted > 5 times in an hour and still fails, it's a sign of a non-recoverable error (continuous OOM, bad config, dependency down). Continuing to restart is useless — human escalation is needed.
 
-Khi vượt ngưỡng: orchestrator log `BLAST_RADIUS_EXCEEDED` và không thực hiện action, để alert tiếp tục firing cho đến khi human can thiệp.
+When threshold exceeded: orchestrator logs `BLAST_RADIUS_EXCEEDED` and takes no action, letting the alert continue firing until a human intervenes.
 
 ## 3. Verify step
 
-**Metric kiểm tra:** p99 latency (ms) VÀ `up` (1/0).
+**Checked metrics:** p99 latency (ms) AND `up` (1/0).
 
-**Threshold:**
-- `latency_p99_max_ms: 500` — từ `baseline.json`, p99 bình thường dao động 72–230ms tùy service. Chọn 500ms = khoảng 2x baseline p99 của service chậm nhất (checkout-svc: 230ms), đủ rộng để tránh false negative nhưng vẫn phát hiện nếu action không có tác dụng.
-- `up_required: 1` — service phải reachable trước khi verify latency có ý nghĩa.
+**Thresholds:**
+- `latency_p99_max_ms: 500` — from `baseline.json`, normal p99 ranges from 72–230ms depending on the service. Choosing 500ms = roughly 2x the baseline p99 of the slowest service (checkout-svc: 230ms), wide enough to avoid false negatives but still detects if the action had no effect.
+- `up_required: 1` — service must be reachable before verifying latency is meaningful.
 
-**Timeout và polling:**
-- `verify_timeout_seconds: 60` — restart container mất 5–10s, sau đó cần thêm 15–20s để metric ổn định trong Prometheus (scrape interval 10s). 60s = đủ thời gian cho 3 scrape cycle sau khi container up.
-- `verify_poll_interval_seconds: 10` — match với scrape interval của Prometheus.
-- `verify_min_samples: 3` — yêu cầu 3 sample liên tiếp đều pass trước khi kết luận verify thành công. Tránh false positive do một sample may mắn tốt.
+**Timeout and polling:**
+- `verify_timeout_seconds: 60` — container restart takes 5–10s, then needs another 15–20s for metrics to stabilize in Prometheus (scrape interval 10s). 60s = enough time for 3 scrape cycles after the container is up.
+- `verify_poll_interval_seconds: 10` — matches the Prometheus scrape interval.
+- `verify_min_samples: 3` — requires 3 consecutive passing samples before concluding verify is successful. Avoids false positives from a single lucky sample.
 
 ## 4. Circuit breaker reset
 
 **Reset mode: manual.**
 
-Lý do: circuit breaker mở khi 3 consecutive failure xảy ra. Đây là trạng thái bất thường nghiêm trọng — orchestrator đã thử và thất bại 3 lần liên tiếp. Nếu tự động reset sau N phút, có nguy cơ orchestrator tiếp tục loop vô hạn và gây thêm disruption (thundering herd, database connection exhaustion, v.v.).
+Reason: the circuit breaker opens when 3 consecutive failures occur. This is a severe abnormal state — the orchestrator tried and failed 3 times in a row. If automatically reset after N minutes, there's a risk the orchestrator continues an infinite loop and causes further disruption (thundering herd, database connection exhaustion, etc.).
 
-Manual reset đảm bảo: một kỹ sư xem xét log, xác định nguyên nhân gốc rễ, xác nhận fix xong trước khi automation tiếp tục. Chi phí của manual reset (vài phút delay) thấp hơn rủi ro của automated reset sai lúc.
+Manual reset ensures: an engineer reviews the logs, identifies the root cause, and confirms the fix is applied before automation resumes. The cost of manual reset (a few minutes of delay) is lower than the risk of an incorrect automated reset.
 
-Cách reset: `Ctrl+C` dừng orchestrator, fix issue, khởi động lại `uv run python closed_loop.py --config config.yaml`.
+How to reset: press `Ctrl+C` to stop the orchestrator, fix the issue, and restart with `uv run python closed_loop.py --config config.yaml`.
 
-Nếu muốn automatic reset: thêm `cool_down_seconds: 1800` (30 phút) vào config và implement time-based reset. Nhưng phải có alert riêng để notify on-call khi circuit mở.
+If automatic reset is desired: add `cool_down_seconds: 1800` (30 minutes) to the config and implement time-based reset. But there must be a separate alert to notify on-call when the circuit opens.
 
 ## 5. Mutex strategy (Stress 2 — concurrent alert race)
 
-**Thiết kế**: một `threading.Lock` riêng biệt cho mỗi service name, lưu trong dict `_service_locks` bảo vệ bởi một meta-lock. Khi alert đến, orchestrator gọi `acquire(blocking=False)` — nếu service đang có runbook chạy thì log `SERVICE_LOCK_BUSY` và bỏ qua alert duplicate thay vì xếp hàng chờ. Hai service khác nhau luôn có lock khác nhau nên chạy song song không bị block.
+**Design**: A separate `threading.Lock` for each service name, stored in a `_service_locks` dict protected by a meta-lock. When an alert arrives, the orchestrator calls `acquire(blocking=False)` — if the service currently has a runbook running, it logs `SERVICE_LOCK_BUSY` and skips the duplicate alert instead of queuing it. Two different services always have different locks, so they run in parallel without blocking.
 
-Lý do dùng `blocking=False` thay vì queue: trong closed-loop production, một runbook đang chạy trên service A là sự kiện đang tiến hành — alert mới trên cùng service A trong vòng 30s là duplicate của cùng sự cố, không phải sự cố mới. Xếp hàng chờ sẽ gây re-execute runbook ngay sau khi lock release, tức là thực hiện action hai lần trên cùng service liên tiếp — nguy hiểm hơn là bỏ qua.
+Reason for using `blocking=False` instead of a queue: in closed-loop production, a runbook actively running on service A is an ongoing event — a new alert on the same service A within 30s is a duplicate of the same incident, not a new incident. Queuing it would cause the runbook to re-execute immediately after the lock releases, i.e., performing the action twice on the same service consecutively — more dangerous than skipping it.
 
 ## 6. Rollback chain ordering (Stress 1 — multi-step transactional deploy)
 
-**Thiết kế**: `run_transactional_steps` thực thi steps A→B→C và tích lũy danh sách `completed` theo thứ tự thực hiện. Khi step C fail, orchestrator lấy `rollback_steps[:len(completed)]` rồi duyệt `reversed()` — tức rollback-B trước rollback-A. Không rollback bước chưa bao giờ được thực thi.
+**Design**: `run_transactional_steps` executes steps A→B→C and accumulates a `completed` list in execution order. When step C fails, the orchestrator slices `rollback_steps[:len(completed)]` and iterates over `reversed()` — meaning rollback-B runs before rollback-A. It does not rollback steps that were never executed.
 
-Lý do reverse-order là đúng về mặt kỹ thuật: step A (drain traffic) tạo ra state mà step B (apply config) phụ thuộc vào. Nếu rollback A trước B, service có thể nhận traffic trong khi config đang ở trạng thái không nhất quán. Reverse order đảm bảo teardown đi ngược với setup — cùng nguyên lý LIFO stack như transaction rollback trong database.
+Reason reverse-order is technically correct: step A (drain traffic) creates a state that step B (apply config) depends on. If A is rolled back before B, the service might receive traffic while the config is in an inconsistent state. Reverse order ensures teardown is the opposite of setup — the same LIFO stack principle as transaction rollbacks in a database.
 
-## 7. Lý do chọn metrics cho observability
+## 7. Reason for observability metrics selection
 
-Năm metric được chọn theo nguyên tắc debug-driven: mỗi metric trả lời một câu hỏi cụ thể khi incident xảy ra. `closed_loop_actions_total{outcome}` cho biết ngay orchestrator đã act hay rollback — không cần đọc log. `closed_loop_circuit_breaker_state` hiện thị khi automation bị halt; nếu gauge = 1 mà không có alert nào được xử lý, kỹ sư biết ngay cần restart orchestrator thủ công. `closed_loop_blast_radius_remaining` cảnh báo sớm trước khi rate limit bị chạm — gauge về 0 nghĩa là orchestrator đang im lặng không phải vì không có alert mà vì đã dùng hết quota. `closed_loop_mutex_locked` giúp debug race condition: nếu một service liên tục LOCKED trong nhiều phút, runbook có thể bị treo. `closed_loop_verify_status` với giá trị in-progress (2) cho thấy orchestrator đang chờ Prometheus confirm — nếu trạng thái này kéo dài quá `verify_timeout_seconds`, verify đã timeout. Không có metric "vanity" như số lần poll hay số alert skipped — những con số đó không giúp tìm nguyên nhân gốc rễ nhanh hơn.
+The five metrics were chosen based on debug-driven principles: each metric answers a specific question when an incident occurs. `closed_loop_actions_total{outcome}` immediately shows if the orchestrator acted or rolled back — no need to read logs. `closed_loop_circuit_breaker_state` shows when automation is halted; if gauge = 1 and no alerts are processed, engineers know they must restart the orchestrator manually. `closed_loop_blast_radius_remaining` provides early warning before rate limits are hit — gauge hitting 0 means the orchestrator is silent not because there are no alerts, but because the quota is exhausted. `closed_loop_mutex_locked` helps debug race conditions: if a service is continually LOCKED for many minutes, a runbook might be hung. `closed_loop_verify_status` with an in-progress value (2) shows the orchestrator is waiting for Prometheus confirmation — if this state lasts longer than `verify_timeout_seconds`, the verify timed out. There are no "vanity" metrics like total polls or skipped alerts — those numbers don't help find root causes faster.
 
 ## 8. Decision validation policy (Stress 3 — LLM hallucination defense)
 
-**Thiết kế**: trước khi gọi dry-run, `validate_runbook` kiểm tra tên runbook trả về từ decide engine có nằm trong `runbook_registry` (danh sách path được khai báo tường minh trong config) hay không. Nếu không có → log `DECISION_VALIDATION_FAILED` với đầy đủ `bad_runbook`, `alertname`, `raw_decision`, `action=escalate_no_auto_action`, rồi return ngay — không spawn subprocess, không thực thi gì.
+**Design**: before calling dry-run, `validate_runbook` checks if the runbook name returned from the decision engine exists in `runbook_registry` (an explicit list of paths declared in the config). If it doesn't exist → log `DECISION_VALIDATION_FAILED` with full details (`bad_runbook`, `alertname`, `raw_decision`, `action=escalate_no_auto_action`), then return immediately — no subprocess spawned, no action executed.
 
-Lý do cần whitelist tường minh: LLM có thể trả về tên runbook hợp lý về mặt ngôn ngữ nhưng không tồn tại trong hệ thống (`scale_down_database.sh`, `reboot_kernel.sh`). Nếu orchestrator tin tưởng tên đó và chạy `subprocess` với path không tồn tại, bash sẽ exit non-zero và action fail — nhưng failure đó sẽ increment circuit breaker counter, có thể mở circuit sau 3 lần hallucinate liên tiếp. Validation trước dry-run ngắt vòng lặp đó và giữ audit trail rõ ràng để human review.
+Reason an explicit whitelist is needed: An LLM might return a runbook name that makes linguistic sense but doesn't exist in the system (`scale_down_database.sh`, `reboot_kernel.sh`). If the orchestrator blindly trusts that name and runs `subprocess` with a non-existent path, bash will exit non-zero and the action will fail — but that failure will increment the circuit breaker counter, potentially opening the circuit after 3 consecutive hallucinations. Pre-dry-run validation breaks that loop and keeps a clear audit trail for human review.
