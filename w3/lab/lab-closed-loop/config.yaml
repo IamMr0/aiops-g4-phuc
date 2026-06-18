@@ -13,6 +13,7 @@ runbook_map:
   HighLatency:   "runbooks/restart_service.sh"
   HighErrorRate: "runbooks/clear_cache.sh"
   InstanceDown:  "runbooks/restart_service.sh"
+  MultiStepDeploy: "runbooks/multi_step_deploy.sh"
 
 # Runbook registry: whitelist of valid runbook paths (for hallucination defense)
 runbook_registry:
