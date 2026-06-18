@@ -79,7 +79,7 @@ def fetch_active_alerts(alertmanager_url: str) -> list[dict]:
 
 def run_runbook(script: str, service: str, dry_run: bool, timeout_s: int = 30) -> bool:
     """Execute runbook script. Returns True on exit code 0."""
-    cmd = ["/bin/bash", script, "--service", service]
+    cmd = ["bash", script, "--service", service]
     if dry_run:
         cmd.append("--dry-run")
     log.info("RUNBOOK_EXEC", script=script, service=service, dry_run=dry_run)
@@ -152,6 +152,15 @@ def process_alert(
 ):
     alertname = alert.get("labels", {}).get("alertname", "")
     service = extract_service(alert)
+
+    # Filter: only process alerts for known Ronki services
+    known_services = cfg.get("known_services", [
+        "frontend", "api-gateway", "payment-svc", "inventory-svc", "checkout-svc"
+    ])
+    if service not in known_services:
+        log.info("ALERT_SKIPPED", alertname=alertname, service=service,
+                 reason="Service not in known_services list")
+        return
 
     log.info("ALERT_DETECTED", alertname=alertname, service=service,
              severity=alert.get("labels", {}).get("severity", ""))
@@ -303,16 +312,18 @@ def main():
             time.sleep(cfg["poll_interval_seconds"])
             continue
 
+        active_fps = set()
         for alert in fetch_active_alerts(cfg["alertmanager_url"]):
             fp = alert.get("fingerprint", "")
-            if fp and fp in seen:
-                continue
             if fp:
+                active_fps.add(fp)
+                if fp in seen:
+                    continue
                 seen.add(fp)
             process_alert(alert, cfg, baseline, guard, cb, global_dry_run=args.dry_run)
 
-        if len(seen) > 500:
-            seen.clear()
+        # Remove resolved alerts from the seen set so they can trigger again if they re-fire
+        seen.intersection_update(active_fps)
 
         time.sleep(cfg["poll_interval_seconds"])
 
