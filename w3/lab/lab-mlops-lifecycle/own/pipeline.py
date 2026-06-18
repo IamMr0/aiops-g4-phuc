@@ -2,8 +2,8 @@
 pipeline.py — Train IsolationForest trên baseline data, log vào MLflow, register model.
 
 Usage:
-    uv run python pipeline.py --data data/baseline.csv
-    uv run python pipeline.py --data data/baseline.csv --contamination 0.05 --n-estimators 150
+    uv run python pipeline.py --data ../data-pack/data/baseline.csv
+    uv run python pipeline.py --data ../data-pack/data/baseline.csv --contamination 0.05 --n-estimators 150
 """
 
 import argparse

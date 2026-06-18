@@ -8,24 +8,24 @@ Log drift score vào MLflow (optional, requires MLFLOW_TRACKING_URI).
 
 Usage:
     uv run python drift_detector.py \
-        --reference data/baseline.csv \
-        --current   data/drifted.csv \
+        --reference ../data-pack/data/baseline.csv \
+        --current   ../data-pack/data/drifted.csv \
         --threshold 0.15
 
     # Performance check (concept drift detection):
     uv run python drift_detector.py \
-        --reference data/baseline.csv \
-        --current   data/drifted.csv \
+        --reference ../data-pack/data/baseline.csv \
+        --current   ../data-pack/data/drifted.csv \
         --check-mode performance \
-        --labeled-current data/drifted.csv \
+        --labeled-current ../data-pack/data/drifted.csv \
         --model-uri models:/anomaly-detector@production
 
     # Combined (default): runs both data + performance checks
     uv run python drift_detector.py \
-        --reference data/baseline.csv \
-        --current   data/drifted.csv \
+        --reference ../data-pack/data/baseline.csv \
+        --current   ../data-pack/data/drifted.csv \
         --check-mode combined \
-        --labeled-current data/drifted.csv \
+        --labeled-current ../data-pack/data/drifted.csv \
         --model-uri models:/anomaly-detector@production
 """
 

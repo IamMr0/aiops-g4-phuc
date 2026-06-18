@@ -13,12 +13,12 @@ Flow:
 Usage:
     export MLFLOW_TRACKING_URI=http://localhost:5000
     uv run python retrain.py \
-        --reference data/baseline.csv \
-        --current   data/drifted.csv \
+        --reference ../data-pack/data/baseline.csv \
+        --current   ../data-pack/data/drifted.csv \
         --serve-url http://localhost:8000
 
     # Skip approval gate (CI/testing only):
-    uv run python retrain.py --reference data/baseline.csv --current data/drifted.csv --auto-approve
+    uv run python retrain.py --reference ../data-pack/data/baseline.csv --current ../data-pack/data/drifted.csv --auto-approve
 """
 
 import argparse
