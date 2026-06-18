@@ -6,7 +6,7 @@ poll_interval_seconds: 15
 runbook_timeout_seconds: 30
 
 # Relative path from this config file to the baseline JSON
-baseline_path: "data-pack/data/baseline.json"
+baseline_path: "../data-pack/data/baseline.json"
 
 # Runbook map: alertname → script path (relative to this config file)
 runbook_map:
