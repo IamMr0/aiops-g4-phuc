@@ -10,47 +10,44 @@
 
 ---
 
-## Scenario 1 — Successful Action (kill payment-svc)
+## Scenario 1 — Successful Action (latency inject on payment-svc)
 
-**Environment Note**: On Docker Desktop for Windows, the `inject_fault.sh latency` command using `nsenter` + `tc` does not work because the container PID namespace resides inside the WSL2 VM and is inaccessible from the host. Therefore, `kill` is used instead of `latency` to trigger the `InstanceDown` alert on payment-svc.
+**Environment Note**: The latency fault injection has been patched to work on Windows/macOS Docker Desktop environments by automatically falling back to an Alpine helper container that configures `tc` netem delay directly inside the container's network namespace, and writing the delay value to a state file that the python service mockup monitors to report accurate Prometheus metric latency values.
 
 **Inject command:**
 ```bash
-bash data-pack/scripts/inject_fault.sh kill ronki-payment-svc
+bash data-pack/scripts/inject_fault.sh latency ronki-payment-svc 500ms
 ```
 
 **Orchestrator log (excerpt):**
 ```json
-{"ts":"2026-06-18T05:03:41.473748+00:00","level":"INFO","event_type":"ORCHESTRATOR_START","config":"config.yaml","dry_run":false,"poll_interval_s":15}
-{"ts":"2026-06-18T05:03:41.569627+00:00","level":"INFO","event_type":"ALERT_SKIPPED","alertname":"InstanceDown","service":"closed-loop-orchestrator","reason":"Service not in known_services list"}
-{"ts":"2026-06-18T05:13:57.395948+00:00","level":"INFO","event_type":"ALERT_DETECTED","alertname":"InstanceDown","service":"payment-svc","severity":"critical"}
-{"ts":"2026-06-18T05:13:57.395948+00:00","level":"INFO","event_type":"DECIDE_RUNBOOK","alertname":"InstanceDown","service":"payment-svc","runbook":"runbooks/restart_service.sh"}
-{"ts":"2026-06-18T05:13:57.395948+00:00","level":"INFO","event_type":"BLAST_RADIUS_OK","service":"payment-svc"}
-{"ts":"2026-06-18T05:13:57.395948+00:00","level":"INFO","event_type":"RUNBOOK_EXEC","script":"runbooks/restart_service.sh","service":"payment-svc","dry_run":true}
-{"ts":"2026-06-18T05:13:57.516957+00:00","level":"INFO","event_type":"RUNBOOK_RESULT","script":"runbooks/restart_service.sh","service":"payment-svc","returncode":0,"stdout":"[DRY-RUN] would execute: docker restart ronki-payment-svc","stderr":""}
-{"ts":"2026-06-18T05:13:57.516957+00:00","level":"INFO","event_type":"DRY_RUN_PASS","runbook":"runbooks/restart_service.sh","service":"payment-svc"}
-{"ts":"2026-06-18T05:13:57.516957+00:00","level":"INFO","event_type":"RUNBOOK_EXEC","script":"runbooks/restart_service.sh","service":"payment-svc","dry_run":false}
-{"ts":"2026-06-18T05:14:03.144237+00:00","level":"INFO","event_type":"RUNBOOK_RESULT","script":"runbooks/restart_service.sh","service":"payment-svc","returncode":0,"stdout":"[restart_service] Restarting ronki-payment-svc...\\nronki-payment-svc\\n[restart_service] Waiting 5s for ronki-payment-svc to come up...\\n[restart_service] ronki-payment-svc is running.","stderr":""}
-{"ts":"2026-06-18T05:14:03.144237+00:00","level":"INFO","event_type":"ACTION_EXECUTED","runbook":"runbooks/restart_service.sh","service":"payment-svc"}
-{"ts":"2026-06-18T05:14:03.144237+00:00","level":"INFO","event_type":"VERIFY_START","service":"payment-svc","timeout_s":60}
-{"ts":"2026-06-18T05:14:03.161627+00:00","level":"INFO","event_type":"VERIFY_SAMPLE","service":"payment-svc","sample":1,"latency_p99_ms":null,"up":1.0,"latency_ok":false,"up_ok":true}
-{"ts":"2026-06-18T05:14:13.221857+00:00","level":"INFO","event_type":"VERIFY_SAMPLE","service":"payment-svc","sample":2,"latency_p99_ms":null,"up":1.0,"latency_ok":false,"up_ok":true}
-{"ts":"2026-06-18T05:14:23.278820+00:00","level":"INFO","event_type":"VERIFY_SAMPLE","service":"payment-svc","sample":3,"latency_p99_ms":null,"up":1.0,"latency_ok":false,"up_ok":true}
-{"ts":"2026-06-18T05:14:33.316970+00:00","level":"INFO","event_type":"VERIFY_SAMPLE","service":"payment-svc","sample":4,"latency_p99_ms":null,"up":1.0,"latency_ok":false,"up_ok":true}
-{"ts":"2026-06-18T05:14:43.338176+00:00","level":"INFO","event_type":"VERIFY_SAMPLE","service":"payment-svc","sample":5,"latency_p99_ms":null,"up":1.0,"latency_ok":false,"up_ok":true}
-{"ts":"2026-06-18T05:14:53.357125+00:00","level":"INFO","event_type":"VERIFY_SAMPLE","service":"payment-svc","sample":6,"latency_p99_ms":null,"up":1.0,"latency_ok":false,"up_ok":true}
-{"ts":"2026-06-18T05:15:03.358771+00:00","level":"WARNING","event_type":"VERIFY_FAIL","service":"payment-svc","samples":6}
-{"ts":"2026-06-18T05:15:03.358771+00:00","level":"WARNING","event_type":"ROLLBACK_TRIGGERED","service":"payment-svc","rollback_runbook":"runbooks/restart_service.sh"}
-{"ts":"2026-06-18T05:15:03.358771+00:00","level":"INFO","event_type":"RUNBOOK_EXEC","script":"runbooks/restart_service.sh","service":"payment-svc","dry_run":false}
-{"ts":"2026-06-18T05:15:10.242786+00:00","level":"INFO","event_type":"RUNBOOK_RESULT","script":"runbooks/restart_service.sh","service":"payment-svc","returncode":0,"stdout":"[restart_service] Restarting ronki-payment-svc...\\nronki-payment-svc\\n[restart_service] Waiting 5s for ronki-payment-svc to come up...\\n[restart_service] ronki-payment-svc is running.","stderr":""}
-{"ts":"2026-06-18T05:15:10.242786+00:00","level":"INFO","event_type":"ROLLBACK_EXECUTED","service":"payment-svc","rollback_runbook":"runbooks/restart_service.sh"}
+{"ts": "2026-06-19T04:00:07.335423+00:00", "level": "INFO", "event_type": "ORCHESTRATOR_START", "config": "config.yaml", "dry_run": false, "poll_interval_s": 15}
+{"ts": "2026-06-19T04:01:52.560874+00:00", "level": "INFO", "event_type": "ALERT_DETECTED", "alertname": "HighLatency", "service": "payment-svc", "severity": "warning"}
+{"ts": "2026-06-19T04:01:52.560874+00:00", "level": "INFO", "event_type": "DECIDE_RUNBOOK", "alertname": "HighLatency", "service": "payment-svc", "runbook": "runbooks/restart_service.sh"}
+{"ts": "2026-06-19T04:01:52.560874+00:00", "level": "INFO", "event_type": "BLAST_RADIUS_OK", "service": "payment-svc"}
+{"ts": "2026-06-19T04:01:52.561883+00:00", "level": "INFO", "event_type": "RUNBOOK_EXEC", "script": "runbooks/restart_service.sh", "service": "payment-svc", "dry_run": true}
+{"ts": "2026-06-19T04:01:52.664075+00:00", "level": "INFO", "event_type": "RUNBOOK_RESULT", "script": "runbooks/restart_service.sh", "service": "payment-svc", "returncode": 0, "stdout": "[DRY-RUN] would execute: docker restart ronki-payment-svc", "stderr": ""}
+{"ts": "2026-06-19T04:01:52.664075+00:00", "level": "INFO", "event_type": "DRY_RUN_PASS", "runbook": "runbooks/restart_service.sh", "service": "payment-svc"}
+{"ts": "2026-06-19T04:01:52.664075+00:00", "level": "INFO", "event_type": "RUNBOOK_EXEC", "script": "runbooks/restart_service.sh", "service": "payment-svc", "dry_run": false}
+{"ts": "2026-06-19T04:01:59.715076+00:00", "level": "INFO", "event_type": "RUNBOOK_RESULT", "script": "runbooks/restart_service.sh", "service": "payment-svc", "returncode": 0, "stdout": "[restart_service] Restarting ronki-payment-svc...\nronki-payment-svc\n[restart_service] Waiting 5s for ronki-payment-svc to come up...\n[restart_service] ronki-payment-svc is running.", "stderr": ""}
+{"ts": "2026-06-19T04:01:59.715076+00:00", "level": "INFO", "event_type": "ACTION_EXECUTED", "runbook": "runbooks/restart_service.sh", "service": "payment-svc"}
+{"ts": "2026-06-19T04:01:59.715076+00:00", "level": "INFO", "event_type": "VERIFY_START", "service": "payment-svc", "timeout_s": 60}
+{"ts": "2026-06-19T04:01:59.725805+00:00", "level": "INFO", "event_type": "VERIFY_SAMPLE", "service": "payment-svc", "sample": 1, "latency_p99_ms": 992.8787878787879, "up": 1.0, "latency_ok": false, "up_ok": true}
+{"ts": "2026-06-19T04:02:09.787451+00:00", "level": "INFO", "event_type": "VERIFY_SAMPLE", "service": "payment-svc", "sample": 2, "latency_p99_ms": 983.4, "up": 1.0, "latency_ok": false, "up_ok": true}
+{"ts": "2026-06-19T04:02:19.806966+00:00", "level": "INFO", "event_type": "VERIFY_SAMPLE", "service": "payment-svc", "sample": 3, "latency_p99_ms": 963.7500000000002, "up": 1.0, "latency_ok": false, "up_ok": true}
+{"ts": "2026-06-19T04:02:29.829203+00:00", "level": "INFO", "event_type": "VERIFY_SAMPLE", "service": "payment-svc", "sample": 4, "latency_p99_ms": 932.5000000000001, "up": 1.0, "latency_ok": false, "up_ok": true}
+{"ts": "2026-06-19T04:02:39.873102+00:00", "level": "INFO", "event_type": "VERIFY_SAMPLE", "service": "payment-svc", "sample": 5, "latency_p99_ms": 248.284, "up": 1.0, "latency_ok": true, "up_ok": true}
+{"ts": "2026-06-19T04:02:49.885293+00:00", "level": "INFO", "event_type": "VERIFY_SAMPLE", "service": "payment-svc", "sample": 6, "latency_p99_ms": 248.25978593810026, "up": 1.0, "latency_ok": true, "up_ok": true}
+{"ts": "2026-06-19T04:02:59.887288+00:00", "level": "WARNING", "event_type": "VERIFY_FAIL", "service": "payment-svc", "samples": 6}
+{"ts": "2026-06-19T04:02:59.887288+00:00", "level": "WARNING", "event_type": "ROLLBACK_TRIGGERED", "service": "payment-svc", "rollback_runbook": "runbooks/restart_service.sh"}
+{"ts": "2026-06-19T04:02:59.887288+00:00", "level": "INFO", "event_type": "RUNBOOK_EXEC", "script": "runbooks/restart_service.sh", "service": "payment-svc", "dry_run": false}
+{"ts": "2026-06-19T04:03:07.034728+00:00", "level": "INFO", "event_type": "RUNBOOK_RESULT", "script": "runbooks/restart_service.sh", "service": "payment-svc", "returncode": 0, "stdout": "[restart_service] Restarting ronki-payment-svc...\nronki-payment-svc\n[restart_service] Waiting 5s for ronki-payment-svc to come up...\n[restart_service] ronki-payment-svc is running.", "stderr": ""}
+{"ts": "2026-06-19T04:03:07.034728+00:00", "level": "INFO", "event_type": "ROLLBACK_EXECUTED", "service": "payment-svc", "rollback_runbook": "runbooks/restart_service.sh"}
 ```
 
-**Result:** The orchestrator correctly detected `InstanceDown` on `payment-svc`, successfully passed Dry-run and Blast-radius checks. Restart was successful (container running). However, **verify FAILED** because `latency_p99_ms` returned `null` throughout the entire 60s verify window.
+**Result:** The orchestrator correctly detected `HighLatency` on `payment-svc`, successfully passed dry-run and blast-radius check, and restarted the container. After restarting, the latency successfully returned to normal (~248ms). However, because `verify_min_samples` is set to 3, it required 3 consecutive passing samples within the 60s timeout window. Since the Prometheus rate calculation took ~40s to fully drop/stabilize after the restart, only 2 passing samples (samples 5 and 6) were collected before the timeout, causing the orchestrator to trigger a rollback.
 
-**Root cause**: The PromQL query `histogram_quantile(0.99, rate(http_request_duration_seconds_bucket{service="payment-svc"}[1m]))` requires at least 2 scrape cycles for `rate()` to compute a value. After a container restart, the histogram counter is reset — Prometheus needs ~20–30s to accumulate enough data. During the 60s verify window, all 6 consecutive samples returned `null` → verify failed → rollback triggered.
-
-**Analysis**: The entire closed-loop flow works correctly (Detect → Decide → Dry-run → Act → Verify → Rollback). The output demonstrates both Scenario 1 (detect + decide + act) and Scenario 2 (verify fail → auto-rollback) behaviors in a single run. To achieve a verify pass, `verify_timeout_seconds` would need to be increased to 90–120s, or the orchestrator should wait for Prometheus to accumulate enough scrape data before executing the verify step.
+**Analysis**: The closed-loop latency fault injection flow is verified. To achieve a verify pass (logging `ACTION_SUCCESS`), we can either increase the verification timeout `verify_timeout_seconds` in `baseline.json` to `90` or `120` seconds, or reduce `verify_min_samples` to `2`.
 
 ---
 
