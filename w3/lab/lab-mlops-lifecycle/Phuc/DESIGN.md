@@ -1,32 +1,32 @@
 # DESIGN.md — MLOps Lifecycle: Anomaly Detection Pipeline
 
-## Tổng quan
+## Overview
 
-Pipeline phát hiện drift trong metrics payment gateway (latency_p99, error_rate, rps), trigger retrain model IsolationForest, và swap phiên bản mới qua MLflow Registry alias.
+A pipeline that detects drift in payment gateway metrics (latency_p99, error_rate, rps), triggers retraining of the IsolationForest model, and swaps the new version via MLflow Registry alias.
 
 ---
 
 ## Sub-checkpoint 1: Drift Threshold
 
-**Giá trị đã chọn: 0.15** (15% features bị drift theo Evidently DataDriftPreset).
+**Chosen value: 0.15** (15% of features drifted according to Evidently DataDriftPreset).
 
-**Cách chọn:** Trước tiên chạy drift_detector trên chính baseline.csv, chia 70/30 (2-tháng đầu làm reference, 1-tháng cuối làm current). Kết quả drift score = 0.04 — đây là "noise floor" khi không có drift thực sự. Từ đó chọn threshold = 0.15, tức 3.75× noise floor. Với drifted.csv, score thực đo được là 0.67 (2/3 features drifted), vượt threshold rõ ràng.
+**Selection method:** First, run `drift_detector` on the `baseline.csv` itself, split 70/30 (first 2 months as reference, last 1 month as current). The resulting drift score = 0.04 — this is the "noise floor" when there is no actual drift. From there, select a threshold = 0.15, which is 3.75× the noise floor. With `drifted.csv`, the actual measured score is 0.67 (2/3 features drifted), clearly exceeding the threshold.
 
-**Rủi ro nếu threshold quá thấp (ví dụ 0.05):** false positive — retrain trigger sau mỗi seasonal fluctuation bình thường (sáng/tối traffic khác nhau). Tốn compute và gây alert fatigue.
+**Risk if the threshold is too low (e.g., 0.05):** false positive — retraining is triggered after every normal seasonal fluctuation (morning/evening traffic differs). Wastes compute and causes alert fatigue.
 
-**Rủi ro nếu threshold quá cao (ví dụ 0.50):** false negative — bỏ sót drift thực, model tiếp tục serve với phân phối không còn phù hợp, precision/recall giảm âm thầm.
+**Risk if the threshold is too high (e.g., 0.50):** false negative — missing actual drift, the model continues to serve with a distribution that is no longer appropriate, and precision/recall silently decrease.
 
 ---
 
-## Sub-checkpoint 2: Loại Drift
+## Sub-checkpoint 2: Drift Type
 
-**Loại được detect: Data drift** — P(X) thay đổi, tức phân phối input features (latency_p99, error_rate, rps) đã dịch chuyển so với training data.
+**Detected type: Data drift** — P(X) changes, meaning the input features distribution (latency_p99, error_rate, rps) has shifted compared to the training data.
 
-**Evidently DataDriftPreset detect:** Statistical test trên từng feature. Mặc định dùng Wasserstein distance cho numerical features. Khi share_of_drifted_columns > threshold → flag.
+**Evidently DataDriftPreset detection:** Statistical test on each feature. Defaults to using Wasserstein distance for numerical features. When `share_of_drifted_columns > threshold` → flag.
 
-**Tại sao data drift phù hợp với bài toán này:** Payment gateway anomaly detection cần biết khi nào "bình thường mới" (new normal) khác với "bình thường cũ". Sau campaign, latency baseline tăng lên 156ms — model v1 train với baseline 120ms sẽ coi 156ms là anomaly dù thực ra là normal. Detect data drift cho phép retrain model với distribution mới trước khi precision giảm đáng kể.
+**Why data drift fits this problem:** Payment gateway anomaly detection needs to know when the "new normal" differs from the "old normal". After a campaign, the latency baseline increases to 156ms — model v1 trained with a 120ms baseline will consider 156ms as an anomaly even though it's actually normal. Detecting data drift allows retraining the model with the new distribution before precision drops significantly.
 
-**Concept drift (P(Y|X) thay đổi) không được detect trực tiếp** trong pipeline này vì không có ground truth labels trong production. Performance drift (proxy: theo dõi anomaly rate trend) được log vào MLflow mỗi lần drift check để visualize.
+**Concept drift (P(Y|X) changes) is not directly detected** in this pipeline because there are no ground truth labels in production. Performance drift (proxy: tracking the anomaly rate trend) is logged into MLflow on every drift check to be visualized.
 
 ---
 
@@ -34,38 +34,38 @@ Pipeline phát hiện drift trong metrics payment gateway (latency_p99, error_ra
 
 **Trigger type: Manual approval gate** — semi-automatic.
 
-**Cadence:** Không có schedule cố định. Drift check được gọi khi có batch data mới (có thể integrate vào daily batch job). Nhưng promotion từ staging → production luôn yêu cầu human approval.
+**Cadence:** No fixed schedule. The drift check is called when there is a new batch of data (can be integrated into a daily batch job). But promotion from staging → production always requires human approval.
 
-**Lý do chọn manual:** Model anomaly detection trong payment system ảnh hưởng trực tiếp đến on-call SLA. Một model tệ hơn được promote tự động có thể gây false negatives trên incident thực, hoặc alert storm từ false positives. Approval gate đảm bảo ML engineer review metric (anomaly_rate của v2 vs v1) trước khi cutover.
+**Reason for choosing manual:** An anomaly detection model in a payment system directly affects the on-call SLA. A worse model promoted automatically can cause false negatives on an actual incident, or an alert storm from false positives. The approval gate ensures the ML engineer reviews the metric (anomaly_rate of v2 vs v1) before cutover.
 
-**Approval timeout:** Không implement timeout trong lab. Trong production, recommend 24h timeout — nếu không có approval trong 24h, staging version bị archive và drift check reset. Tránh trạng thái "staging model treo mãi không ai review".
+**Approval timeout:** Timeout is not implemented in the lab. In production, a 24h timeout is recommended — if there is no approval within 24h, the staging version is archived and the drift check resets. Prevents the "staging model hanging forever with no one reviewing it" state.
 
-**Nếu tự động hoàn toàn:** Có thể dùng A/B shadow mode (optional D trong HANDOUT) — serve.py gọi cả v1 (production) và v2 (staging) song song trong 24h, so sánh anomaly_rate delta. Nếu delta < 5% và không có false negative trên known incident window → auto-promote. Ngưỡng 5% là conservative cho payment domain.
+**If fully automated:** A/B shadow mode can be used (optional D in HANDOUT) — `serve.py` calls both v1 (production) and v2 (staging) in parallel for 24h, comparing the `anomaly_rate` delta. If delta < 5% and there are no false negatives on a known incident window → auto-promote. A 5% threshold is conservative for the payment domain.
 
 ---
 
-## Sub-checkpoint 4: Versioning và Rollback
+## Sub-checkpoint 4: Versioning and Rollback
 
-**Chiến lược versioning:** MLflow Registry với aliases, không phụ thuộc vào version numbers.
+**Versioning strategy:** MLflow Registry with aliases, independent of version numbers.
 
-- `production` alias → version đang serve
-- `staging` alias → version candidate sau retrain
-- Version numbers (1, 2, 3…) là immutable audit trail
+- `production` alias → the version currently serving
+- `staging` alias → the candidate version after retraining
+- Version numbers (1, 2, 3...) are immutable audit trails
 
-**Tại sao alias tốt hơn version number trong code serve.py:** `mlflow.pyfunc.load_model("models:/anomaly-detector@production")` không thay đổi khi swap. Nếu hardcode version number, phải redeploy serve.py mỗi lần retrain.
+**Why aliases are better than version numbers in the serve.py code:** `mlflow.pyfunc.load_model("models:/anomaly-detector@production")` does not change when swapping. If the version number is hardcoded, `serve.py` must be redeployed every time it is retrained.
 
 **Rollback path:**
-1. Phát hiện v2 underperform (precision giảm, alert storm): `MlflowClient.set_registered_model_alias("anomaly-detector", "production", "1")` — swap alias về v1.
-2. Gọi `POST /reload` trên serve.py — load lại v1 từ registry.
-3. Toàn bộ quá trình < 30 giây, không cần redeploy container.
+1. Detect v2 underperforming (precision drops, alert storm): `MlflowClient.set_registered_model_alias("anomaly-detector", "production", "1")` — swap alias back to v1.
+2. Call `POST /reload` on `serve.py` — reload v1 from the registry.
+3. The entire process takes < 30 seconds, no container redeployment needed.
 
-**Ai có quyền rollback:** ML engineer on-call (có MLflow admin access). Trong production, rollback nên được wrap thành Runbook command với audit log.
+**Who has rollback rights:** ML engineer on-call (with MLflow admin access). In production, a rollback should be wrapped into a Runbook command with an audit log.
 
-**Retention policy:** Giữ tất cả registered versions vô thời hạn (artifacts tốn storage nhưng model IsolationForest < 1MB). Không xóa version cũ vì cần cho audit và rollback bất kỳ lúc nào.
+**Retention policy:** Keep all registered versions indefinitely (artifacts consume storage but IsolationForest models are < 1MB). Do not delete old versions as they are needed for audits and rollbacks at any time.
 
 ---
 
-## Kiến trúc component
+## Component Architecture
 
 ```
 baseline.csv (reference)
@@ -79,7 +79,7 @@ drifted.csv (current window)
      │         ▼
      └──► retrain.py
                │
-               ├── train IsoForest trên drifted.csv
+               ├── train IsoForest on drifted.csv
                ├── MLflow Run → Registry v2 @staging
                ├── [HUMAN APPROVAL]
                ├── set alias production → v2
@@ -90,45 +90,45 @@ drifted.csv (current window)
 
 ---
 
-## Sub-checkpoint 5: Cơ chế phát hiện drift — tại sao cần combined mode
+## Sub-checkpoint 5: Drift Detection Mechanism — why combined mode is needed
 
-Chỉ dùng `DataDriftPreset` (data drift) là chưa đủ. Data drift phát hiện khi P(X) thay đổi — tức phân phối input features dịch chuyển. Nhưng trong tình huống payment gateway, có thể xảy ra **concept drift**: P(Y|X) thay đổi mà P(X) vẫn ổn định. Ví dụ cụ thể: sau khi payment processor mới rollout, cùng một mức latency 180ms có thể là "bình thường mới" với processor cũ nhưng là "anomaly thực sự" với processor mới — hoặc ngược lại. Evidently sẽ không phát hiện điều này vì feature distribution không đổi.
+Using only `DataDriftPreset` (data drift) is not enough. Data drift detects when P(X) changes — i.e., the input feature distribution shifts. But in a payment gateway scenario, **concept drift** can occur: P(Y|X) changes while P(X) remains stable. Specific example: after rolling out a new payment processor, the same latency of 180ms might be the "new normal" for the old processor but an "actual anomaly" for the new processor — or vice versa. Evidently will not detect this because the feature distribution hasn't changed.
 
-`--check-mode combined` chạy song song 2 cơ chế: (1) Evidently `DataDriftPreset` trên feature distribution, và (2) đánh giá precision/recall của model hiện tại trên `holdout.csv` (tập có nhãn từ old pattern). Nếu một trong hai flag — `is_drift = True` hoặc `perf_is_degraded = True` — retrain sẽ được trigger. Ngưỡng performance mặc định là precision ≥ 0.70; nếu model v1 đạt 0.91 trên validation set ban đầu mà chỉ còn 0.62 trên holdout hiện tại, đó là tín hiệu concept drift rõ ràng dù feature score của Evidently vẫn thấp.
-
----
-
-## Sub-checkpoint 6: Data selection strategy — sliding window vs alternatives
-
-Khi retrain chỉ trên drift window (7 ngày gần nhất), model v2 overfit vào phân phối mới: nó học rằng latency 156ms là "bình thường" nhưng quên rằng hệ thống vẫn phải xử lý các batch job chạy theo pattern cũ. Thực nghiệm: train trên drift window → v2 precision trên `holdout.csv` (old pattern) giảm ~18% so với v1.
-
-**Sliding window strategy** (baseline + drift window concat) cho kết quả tốt hơn vì model thấy cả 2 regime. Với `baseline.csv` (4320 rows) + `drifted.csv` (1008 rows), tổng training set là 5328 rows — đủ để IsolationForest không bị dominated bởi phân phối mới. Acceptance criterion: v2 precision và recall trên `holdout.csv` phải ≥ v1 precision/recall đo trên cùng tập đó.
-
-Các alternative: (a) **Pure drift window** — đơn giản nhưng overfit như phân tích trên; (b) **Weighted sampling** (oversample baseline) — phức tạp hơn, hợp lý khi drift window rất nhỏ; (c) **Full historical concat** — an toàn nhất nhưng tốn compute khi data tích lũy nhiều tháng. Sliding window là trade-off tốt nhất cho lab này.
+`--check-mode combined` runs 2 mechanisms in parallel: (1) Evidently `DataDriftPreset` on feature distribution, and (2) evaluates precision/recall of the current model on `holdout.csv` (labeled set from the old pattern). If either flags — `is_drift = True` or `perf_is_degraded = True` — retraining will be triggered. The default performance threshold is precision ≥ 0.70; if model v1 reached 0.91 on the initial validation set but is only 0.62 on the current holdout, it's a clear signal of concept drift even though Evidently's feature score remains low.
 
 ---
 
-## Sub-checkpoint 7: Auto-rollback — threshold và policy
+## Sub-checkpoint 6: Data Selection Strategy — sliding window vs alternatives
 
-Sau khi v2 được promote lên `@production`, `post_deploy_monitor` chạy N polling cycles đánh giá precision trên `post_deploy_eval.csv` (200 rows có nhãn rõ ràng: 60% clear-normal, 40% clear-anomaly). Ngưỡng mặc định: `precision < 0.65` → auto-rollback.
+When retraining only on the drift window (last 7 days), model v2 overfits to the new distribution: it learns that 156ms latency is "normal" but forgets that the system still has to process batch jobs running on the old pattern. Experiment: training on the drift window → v2 precision on `holdout.csv` (old pattern) drops ~18% compared to v1.
 
-Tại sao 0.65? Đây là ngưỡng bảo thủ — thấp hơn baseline 91% nhưng đủ xa để không trigger false rollback do sampling noise trên 200 rows. Tính toán: với 80 anomaly rows (40%), nếu model miss 30 → precision = 50/57 ≈ 0.88; nếu model hoàn toàn confused → precision ≈ 0.40. Ngưỡng 0.65 nằm ở điểm "model rõ ràng đang sai lệch nghiêm trọng".
+**Sliding window strategy** (baseline + drift window concat) yields better results because the model sees both regimes. With `baseline.csv` (4320 rows) + `drifted.csv` (1008 rows), the total training set is 5328 rows — enough so the IsolationForest is not dominated by the new distribution. Acceptance criterion: v2 precision and recall on `holdout.csv` must be ≥ v1 precision/recall measured on the same set.
 
-Rollback flow: `client.set_registered_model_alias(MODEL_NAME, "archived", v2_version)` → `client.set_registered_model_alias(MODEL_NAME, "production", v1_version)` → `POST /reload`. Toàn bộ < 5 giây. Mọi sự kiện được append vào `outputs/audit_log.jsonl` với event key `auto_rollback_v2_to_v1`, bao gồm version bị demote, version được restore, precision trigger value, và cycle number.
-
----
-
-## Observability: tại sao các metrics này quan trọng trong MLOps
-
-MLOps monitoring khác service monitoring thông thường ở chỗ nguyên nhân degradation không phải lỗi code mà là **sự dịch chuyển của dữ liệu**. Drift score và precision/recall theo thời gian cho phép phát hiện model decay trước khi on-call nhận được complaint. Active version gauge và alias state table giải quyết vấn đề "đang serve version nào?" — câu hỏi thường mất nhiều phút tra cứu trong MLflow UI. Retrain event counter và auto-rollback counter tạo audit trail tối giản: số lần hệ thống tự can thiệp là tín hiệu về độ ổn định của distribution production. Các metrics này không thay thế MLflow experiment tracking mà bổ sung vào: MLflow lưu chi tiết từng run, Grafana visualize trend vận hành theo thời gian thực.
+Alternatives: (a) **Pure drift window** — simple but overfits as analyzed above; (b) **Weighted sampling** (oversample baseline) — more complex, reasonable when the drift window is very small; (c) **Full historical concat** — safest but computationally expensive when data accumulates over many months. The sliding window is the best trade-off for this lab.
 
 ---
 
-## Trade-offs đã chấp nhận
+## Sub-checkpoint 7: Auto-rollback — threshold and policy
 
-| Quyết định | Được | Mất |
+After v2 is promoted to `@production`, `post_deploy_monitor` runs N polling cycles evaluating precision on `post_deploy_eval.csv` (200 rows clearly labeled: 60% clear-normal, 40% clear-anomaly). Default threshold: `precision < 0.65` → auto-rollback.
+
+Why 0.65? This is a conservative threshold — lower than the 91% baseline but far enough to avoid triggering a false rollback due to sampling noise on 200 rows. Calculation: with 80 anomaly rows (40%), if the model misses 30 → precision = 50/57 ≈ 0.88; if the model is completely confused → precision ≈ 0.40. The 0.65 threshold is at the point where the "model is clearly deviating significantly".
+
+Rollback flow: `client.set_registered_model_alias(MODEL_NAME, "archived", v2_version)` → `client.set_registered_model_alias(MODEL_NAME, "production", v1_version)` → `POST /reload`. Total < 5 seconds. All events are appended to `outputs/audit_log.jsonl` with event key `auto_rollback_v2_to_v1`, including the demoted version, the restored version, the precision trigger value, and the cycle number.
+
+---
+
+## Observability: why these metrics are important in MLOps
+
+MLOps monitoring differs from regular service monitoring in that the cause of degradation is not a code bug but a **data shift**. The drift score and precision/recall over time allow detecting model decay before on-call receives a complaint. The active version gauge and alias state table solve the problem of "which version is being served?" — a question that usually takes several minutes to look up in the MLflow UI. The retrain event counter and auto-rollback counter create a minimal audit trail: the number of times the system intervened is a signal about the stability of the production distribution. These metrics do not replace MLflow experiment tracking but supplement it: MLflow logs details of each run, Grafana visualizes the operational trend in real-time.
+
+---
+
+## Accepted Trade-offs
+
+| Decision | Pros | Cons |
 |---|---|---|
-| Manual approval gate | An toàn, human oversight | Latency trong retrain loop (hours, không phải minutes) |
-| Data drift only (không performance drift) | Đơn giản, không cần labels | Bỏ sót concept drift khi distribution stable nhưng model accuracy giảm |
-| IsolationForest (không LSTM-AE) | Train < 1s, explainable, no GPU | Không capture temporal patterns, mỗi row độc lập |
-| Local artifact store | Không cần S3 setup | Không scale multi-node, artifacts mất khi volume bị xóa |
+| Manual approval gate | Safety, human oversight | Latency in retrain loop (hours, not minutes) |
+| Data drift only (no performance drift) | Simple, requires no labels | Misses concept drift when the distribution is stable but model accuracy drops |
+| IsolationForest (no LSTM-AE) | Trains in < 1s, explainable, no GPU | Does not capture temporal patterns, each row is independent |
+| Local artifact store | No S3 setup needed | Does not scale multi-node, artifacts are lost when the volume is deleted |
