@@ -77,15 +77,13 @@ app = FastAPI(title="Anomaly Detector API", lifespan=lifespan)
 
 
 class PredictRequest(BaseModel):
-    # Each item is [latency_p99, error_rate, rps]
-    features: list[list[float]]
+    features: list[float]
 
 
 class PredictResponse(BaseModel):
-    predictions: list[int]      # -1 = anomaly, 1 = normal
-    scores: list[float]         # raw anomaly score (more negative = more anomalous)
+    prediction: int
+    score: float
     version: str
-    model_name: str
 
 
 class VersionResponse(BaseModel):
@@ -108,24 +106,23 @@ def predict(req: PredictRequest):
     if not req.features:
         raise HTTPException(status_code=422, detail="features must not be empty")
 
-    X = np.array(req.features)
+    X = np.array([req.features])
     if X.shape[1] != len(FEATURES):
         raise HTTPException(
             status_code=422,
-            detail=f"Expected {len(FEATURES)} features per row ({FEATURES}), got {X.shape[1]}",
+            detail=f"Expected {len(FEATURES)} features, got {X.shape[1]}",
         )
 
     _serve_requests.inc()
     t0 = time.perf_counter()
-    predictions = _state["model"].predict(X).tolist()
-    scores = _state["model"].score_samples(X).tolist()
+    prediction = int(_state["model"].predict(X)[0])
+    score = float(_state["model"].score_samples(X)[0])
     _serve_latency.observe(time.perf_counter() - t0)
 
     return PredictResponse(
-        predictions=predictions,
-        scores=scores,
+        prediction=prediction,
+        score=score,
         version=str(_state["version"]),
-        model_name=MODEL_NAME,
     )
 
 

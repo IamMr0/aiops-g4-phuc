@@ -196,7 +196,7 @@ def post_deploy_monitor(
                 "cycle": cycle,
             })
             reload_serve(serve_url)
-            print(f"[post_deploy_monitor] Rollback complete. v{v1_version} restored to @production. v{v2_version} → @archived.")
+            print(f"Rollback complete. v{v1_version} restored to @production. v{v2_version} → @archived")
             try:
                 from metrics_util import push_event, push_active_version
                 push_event("auto_rollback_v2_to_v1", v2_version)
@@ -269,6 +269,12 @@ def main():
         if "anomaly_label" in holdout_df.columns:
             sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
             from drift_detector import check_performance_drift  # noqa: E402
+            
+            # Evaluate v1 on holdout (for baseline comparison)
+            prec_v1, rec_v1, _ = check_performance_drift(
+                holdout_df, "models:/anomaly-detector@production", perf_threshold=0.0
+            )
+
             # Evaluate v2 inline (model not yet in registry — score manually)
             X_hold = holdout_df[FEATURES].dropna()
             y_true = holdout_df.loc[X_hold.index, "anomaly_label"].values
@@ -280,8 +286,9 @@ def main():
             fn = int(((y_pred == 0) & (y_true == 1)).sum())
             prec_v2 = tp / (tp + fp) if (tp + fp) > 0 else 0.0
             rec_v2 = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+            print(f"[retrain] Holdout validation — v1 precision: {prec_v1:.4f}  recall: {rec_v1:.4f}")
             print(f"[retrain] Holdout validation — v2 precision: {prec_v2:.4f}  recall: {rec_v2:.4f}")
-            append_audit("holdout_validation", {"v2_precision": prec_v2, "v2_recall": rec_v2})
+            append_audit("holdout_validation", {"v1_precision": prec_v1, "v2_precision": prec_v2, "v2_recall": rec_v2})
 
     # Step 4: Register as staging
     new_version = register_new_version(
